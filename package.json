@@ -1,0 +1,24 @@
+{
+  "name": "proxy",
+  "productName": "Proxy",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Desktop screenshot-to-chat assistant for Linux Mint (Electron + Gemini).",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google/genai": "^3.3.0",
+    "dotenv": "^18.0.10"
+  },
+  "devDependencies": {
+    "electron": "^45.3.2"
+  },
+  "license": "UNLICENSED"
+}
