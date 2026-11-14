@@ -25,7 +25,7 @@ code { font-family: var(--font-mono); font-size: var(--font-size-small); }
 }
 .btn:hover:not(:disabled) { background: var(--surface-hover); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.btn:focus-visible, input:focus-visible, textarea:focus-visible, .session-open:focus-visible {
+.btn:focus-visible, input:focus-visible, textarea:focus-visible, .session-open:focus-visible, .folder-toggle:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
@@ -81,6 +81,7 @@ code { font-family: var(--font-mono); font-size: var(--font-size-small); }
   border-bottom: 1px solid var(--border);
 }
 .sidebar-title { font-weight: 600; }
+.sidebar-actions { display: flex; gap: calc(var(--gap) / 2); }
 .session-list { list-style: none; margin: 0; padding: calc(var(--gap) / 2); overflow-y: auto; flex: 1; }
 .session {
   display: flex;
@@ -109,6 +110,45 @@ code { font-family: var(--font-mono); font-size: var(--font-size-small); }
 .session-time { font-size: var(--font-size-small); }
 .session.editing { padding: calc(var(--gap) / 2); }
 .rename-input { width: 100%; }
+.session[draggable="true"] { cursor: grab; }
+.session.drag-source { opacity: 0.5; }
+
+/* Folders */
+.folder { border-radius: var(--radius-small); border: 1px solid transparent; }
+.folder-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) / 4);
+  border-radius: var(--radius-small);
+  padding-right: calc(var(--gap) / 4);
+}
+.folder-head:hover { background: var(--surface-2); }
+.folder-head.editing { padding: calc(var(--gap) / 2); }
+.folder-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) / 2);
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  padding: calc(var(--gap) / 2) var(--gap);
+  cursor: pointer;
+}
+.folder-caret { width: 1em; color: var(--text-muted); }
+.folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-count { font-size: var(--font-size-small); font-weight: normal; }
+.folder-items { list-style: none; margin: 0; padding: 0 0 0 var(--folder-indent); }
+.folder-empty { font-size: var(--font-size-small); padding: calc(var(--gap) / 2) var(--gap); }
+.list-label { font-size: var(--font-size-small); padding: var(--gap) var(--gap) calc(var(--gap) / 4); }
+
+/* Drag and drop targets */
+.folder.drop-target { background: var(--drop-target-bg); border-color: var(--drop-target-border); }
+.session-list.drop-target-root { background: var(--drop-target-bg); box-shadow: inset 0 0 0 1px var(--drop-target-border); }
 
 /* Narrow panel: the sidebar slides over the chat instead of squeezing it. */
 @media (max-width: 560px) {

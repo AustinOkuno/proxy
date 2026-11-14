@@ -37,6 +37,15 @@ const api = {
     create: invoke(INVOKE.HISTORY_CREATE),
     rename: (id, title) => ipcRenderer.invoke(INVOKE.HISTORY_RENAME, { id, title }),
     delete: (id) => ipcRenderer.invoke(INVOKE.HISTORY_DELETE, { id }),
+    /** folderId null = move back to the top level. */
+    move: (id, folderId) => ipcRenderer.invoke(INVOKE.HISTORY_MOVE, { id, folderId: folderId || null }),
+  },
+  folders: {
+    list: invoke(INVOKE.FOLDER_LIST),
+    create: (name) => ipcRenderer.invoke(INVOKE.FOLDER_CREATE, { name }),
+    /** @param {{ name?: string, collapsed?: boolean }} patch */
+    update: (id, patch) => ipcRenderer.invoke(INVOKE.FOLDER_UPDATE, { ...(patch || {}), id }),
+    delete: (id) => ipcRenderer.invoke(INVOKE.FOLDER_DELETE, { id }),
   },
   settings: {
     get: invoke(INVOKE.SETTINGS_GET),

@@ -82,11 +82,24 @@ const sidebar = createSidebar($('session-list'), $('session-empty'), {
     conversation.forget(id);
     refreshSessions();
   },
+  onMove: async (id, folderId) => {
+    await attempt('Moving the chat', () => proxy.history.move(id, folderId));
+    refreshSessions();
+  },
+  onCreateFolder: () => attempt('New folder', () => proxy.folders.create('New folder')),
+  onUpdateFolder: (id, patch) => attempt('Updating the folder', () => proxy.folders.update(id, patch)),
+  onDeleteFolder: async (id) => {
+    await attempt('Deleting the folder', () => proxy.folders.delete(id));
+    refreshSessions();
+  },
 });
 
 async function refreshSessions() {
-  const list = await attempt('Loading chats', () => proxy.history.list());
-  if (list) sidebar.setSessions(list);
+  const [list, folders] = await Promise.all([
+    attempt('Loading chats', () => proxy.history.list()),
+    attempt('Loading folders', () => proxy.folders.list()),
+  ]);
+  if (list) sidebar.setData(list, folders || []);
 }
 
 function newChat() {
@@ -230,6 +243,7 @@ function applyWindowState(state) {
 
 ui.sidebarBtn.addEventListener('click', () => setSidebar(!ui.app.classList.contains('sidebar-open')));
 $('btn-new').addEventListener('click', newChat);
+$('btn-new-folder').addEventListener('click', () => sidebar.newFolder());
 $('btn-new-side').addEventListener('click', () => {
   newChat();
   if (isNarrow()) setSidebar(false);

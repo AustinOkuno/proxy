@@ -18,6 +18,8 @@
   --danger-bg: #3a1f22;
   --focus-ring: #6aa0ff80;
   --overlay-shadow: #00000080;
+  --drop-target-bg: #6aa0ff26;
+  --drop-target-border: var(--accent);
 
   /* Bubbles */
   --bubble-user-bg: #263248;
@@ -33,6 +35,7 @@
   --gap: 8px;
   --toolbar-height: 40px;
   --sidebar-width: 220px;
+  --folder-indent: 12px;
   --thumb-height: 120px;
   --chip-size: 48px;
   --bubble-max-width: 92%;
