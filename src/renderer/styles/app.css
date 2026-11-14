@@ -297,6 +297,8 @@ input.recording { border-color: var(--accent); }
   font: inherit;
 }
 .options { display: flex; flex-direction: column; gap: calc(var(--gap) / 4); }
+.claude-model-box { margin-top: var(--gap); }
+.field-label { font-weight: 600; margin-bottom: calc(var(--gap) / 4); }
 .option { display: flex; align-items: center; gap: var(--gap); cursor: pointer; }
 .option input { accent-color: var(--accent); margin: 0; }
 .settings-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--gap); }

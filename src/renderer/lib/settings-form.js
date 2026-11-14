@@ -25,11 +25,23 @@ export const ANSWER_STYLE_LABELS = {
   both: 'Answer and explanation',
 };
 
+export const PROVIDER_LABELS = {
+  gemini: 'Gemini (free API key in .env)',
+  'claude-pro': 'Claude (Pro), using your Claude subscription',
+};
+
+export const CLAUDE_MODEL_LABELS = {
+  haiku: 'Haiku: fastest (recommended)',
+  sonnet: 'Sonnet: smarter, a bit slower',
+  opus: 'Opus: smartest, slowest, uses your limit fastest',
+};
+
 /**
- * @param {{ hotkeys: Record<string,string>, sendMode: string, panelVisibility: string, answerStyle: string }} values
+ * @param {{ hotkeys: Record<string,string>, sendMode: string, panelVisibility: string, answerStyle: string,
+ *           provider?: string, claudeModel?: string }} values
  *        raw form values
- * @param {{ SEND_MODES: object, PANEL_VISIBILITY: object, ANSWER_STYLES: object }} enums
- *        from window.proxy.constants
+ * @param {{ SEND_MODES: object, PANEL_VISIBILITY: object, ANSWER_STYLES: object, PROVIDERS?: object, CLAUDE_MODELS?: object }} enums
+ *        from window.proxy.constants (provider fields are only included when their enum is given)
  * @returns {{ ok: boolean, patch: object, errors: Record<string,string> }}
  *        errors is keyed by field name ("hotkeys.regionSnip", "sendMode", ...)
  */
@@ -58,6 +70,8 @@ export function buildSettingsPatch(values, enums) {
     panelVisibility: pick('panelVisibility', enums.PANEL_VISIBILITY),
     answerStyle: pick('answerStyle', enums.ANSWER_STYLES),
   };
+  if (enums.PROVIDERS) patch.provider = pick('provider', enums.PROVIDERS);
+  if (enums.CLAUDE_MODELS) patch.claudeModel = pick('claudeModel', enums.CLAUDE_MODELS);
   const ok = Object.keys(errors).length === 0;
   return { ok, patch: ok ? patch : {}, errors };
 }

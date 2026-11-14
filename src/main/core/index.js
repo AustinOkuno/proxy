@@ -7,7 +7,7 @@
  *   settings.js  validated settings persisted to dataDir/settings.json
  *   history.js   sessions in dataDir/history/<id>.json + index.json
  *   chat.js      chat.send (user message -> provider -> assistant message)
- *   llm/         provider adapters (Gemini)
+ *   llm/         provider adapters (Gemini, Claude (Pro) via the local CLI)
  */
 
 const { INVOKE, EVENTS } = require('../../shared/contracts');
@@ -27,7 +27,7 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
 
   const providers = new Map();
   const getProvider = (name) => {
-    if (!providers.has(name)) providers.set(name, providerFactory(name, { env }));
+    if (!providers.has(name)) providers.set(name, providerFactory(name, { env, settings }));
     return providers.get(name);
   };
 

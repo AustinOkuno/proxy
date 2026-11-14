@@ -78,3 +78,13 @@ test('sanitizePatch ignores non-objects', () => {
   assert.deepEqual(sanitizePatch('x').clean, {});
   assert.deepEqual(sanitizePatch({ version: 99 }).clean, {});
 });
+
+test('provider and claudeModel accept the Claude (Pro) values and reject others', () => {
+  const s = createSettingsStore({ dataDir: tmpDir(), logger: quietLogger() });
+  let out = s.update({ provider: 'claude-pro', claudeModel: 'opus' });
+  assert.equal(out.provider, 'claude-pro');
+  assert.equal(out.claudeModel, 'opus');
+  out = s.update({ provider: 'openai', claudeModel: 'gpt-9' });
+  assert.equal(out.provider, 'claude-pro');
+  assert.equal(out.claudeModel, 'opus');
+});

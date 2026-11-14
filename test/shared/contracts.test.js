@@ -31,3 +31,9 @@ test('defaultSettings() returns a mutable copy', () => {
   s.hotkeys.regionSnip = 'X';
   assert.equal(c.DEFAULT_SETTINGS.hotkeys.regionSnip, 'Super+Shift+S');
 });
+
+test('Claude (Pro) provider and models', () => {
+  assert.equal(c.PROVIDERS.CLAUDE_PRO, 'claude-pro');
+  assert.ok(Object.values(c.CLAUDE_MODELS).includes(c.defaultSettings().claudeModel));
+  assert.equal(c.defaultSettings().claudeModel, 'haiku');
+});

@@ -10,6 +10,7 @@ const {
   PANEL_VISIBILITY,
   ANSWER_STYLES,
   PROVIDERS,
+  CLAUDE_MODELS,
   SETTINGS_VERSION,
   defaultSettings,
 } = require('../../shared/contracts');
@@ -20,6 +21,7 @@ const ENUMS = {
   panelVisibility: Object.values(PANEL_VISIBILITY),
   answerStyle: Object.values(ANSWER_STYLES),
   provider: Object.values(PROVIDERS),
+  claudeModel: Object.values(CLAUDE_MODELS),
 };
 const HOTKEY_NAMES = Object.keys(defaultSettings().hotkeys);
 const MAX_HOTKEY_LENGTH = 100;

@@ -1,10 +1,12 @@
-// OWNER: Worker 3. Settings screen: hotkeys, send mode, panel visibility, answer style.
+// OWNER: Worker 3. Settings screen: AI provider and model, hotkeys, send mode, panel visibility, answer style.
 
 import { el } from './dom.js';
 import { keyEventToAccelerator } from '../lib/accelerator.js';
 import {
   ANSWER_STYLE_LABELS,
+  CLAUDE_MODEL_LABELS,
   HOTKEY_FIELDS,
+  PROVIDER_LABELS,
   SEND_MODE_LABELS,
   VISIBILITY_LABELS,
   buildSettingsPatch,
@@ -14,7 +16,7 @@ import {
  * @param {{
  *   form: HTMLFormElement,
  *   status: HTMLElement,
- *   constants: { SEND_MODES: object, PANEL_VISIBILITY: object, ANSWER_STYLES: object },
+ *   constants: { SEND_MODES: object, PANEL_VISIBILITY: object, ANSWER_STYLES: object, PROVIDERS?: object, CLAUDE_MODELS?: object },
  *   save: (patch: object) => Promise<object>,
  *   close: () => void,
  * }} deps
@@ -62,6 +64,17 @@ export function createSettingsView({ form, status, constants, save, close }) {
   radios('#send-mode-options', 'sendMode', constants.SEND_MODES, SEND_MODE_LABELS);
   radios('#visibility-options', 'panelVisibility', constants.PANEL_VISIBILITY, VISIBILITY_LABELS);
   radios('#answer-style-options', 'answerStyle', constants.ANSWER_STYLES, ANSWER_STYLE_LABELS);
+  if (constants.PROVIDERS) radios('#provider-options', 'provider', constants.PROVIDERS, PROVIDER_LABELS);
+  if (constants.CLAUDE_MODELS) radios('#claude-model-options', 'claudeModel', constants.CLAUDE_MODELS, CLAUDE_MODEL_LABELS);
+  const RADIO_FIELDS = ['provider', 'claudeModel', 'sendMode', 'panelVisibility', 'answerStyle'];
+
+  // The Claude model choice only matters when Claude (Pro) is picked.
+  const claudeBox = form.querySelector('#claude-model-box');
+  function syncClaudeBox() {
+    const picked = form.querySelector('input[name="provider"]:checked');
+    if (claudeBox) claudeBox.hidden = !picked || picked.value !== 'claude-pro';
+  }
+  form.addEventListener('change', (e) => { if (e.target && e.target.name === 'provider') syncClaudeBox(); });
 
   function markDirty() {
     dirty = true;
@@ -111,6 +124,8 @@ export function createSettingsView({ form, status, constants, save, close }) {
       sendMode: data.get('sendMode'),
       panelVisibility: data.get('panelVisibility'),
       answerStyle: data.get('answerStyle'),
+      provider: data.get('provider'),
+      claudeModel: data.get('claudeModel'),
     };
   }
 
@@ -126,10 +141,11 @@ export function createSettingsView({ form, status, constants, save, close }) {
     for (const { name } of HOTKEY_FIELDS) {
       hotkeyInputs[name].value = (settings.hotkeys && settings.hotkeys[name]) || '';
     }
-    for (const field of ['sendMode', 'panelVisibility', 'answerStyle']) {
+    for (const field of RADIO_FIELDS) {
       const radio = form.querySelector(`input[name="${field}"][value="${settings[field]}"]`);
       if (radio) radio.checked = true;
     }
+    syncClaudeBox();
     showErrors({});
     dirty = false;
   }

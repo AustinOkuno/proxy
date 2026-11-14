@@ -20,6 +20,7 @@ const {
   PANEL_VISIBILITY,
   ANSWER_STYLES,
   PROVIDERS,
+  CLAUDE_MODELS,
   DEFAULT_SETTINGS,
 } = require('../shared/contracts');
 
@@ -91,6 +92,7 @@ const api = {
     PANEL_VISIBILITY,
     ANSWER_STYLES,
     PROVIDERS,
+    CLAUDE_MODELS,
     DEFAULT_SETTINGS,
   },
 };

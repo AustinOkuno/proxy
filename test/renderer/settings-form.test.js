@@ -39,3 +39,15 @@ test('errors for bad hotkeys, duplicates and missing choices', () => {
     'hotkeys.fullScreenshot', 'hotkeys.regionSnip', 'hotkeys.togglePanel', 'panelVisibility', 'sendMode',
   ]);
 });
+
+test('provider and Claude model are included when their enums are given', () => {
+  const { PROVIDERS, CLAUDE_MODELS } = require('../../src/shared/contracts.js');
+  const all = { ...enums, PROVIDERS, CLAUDE_MODELS };
+  const ok = buildSettingsPatch({ ...defaultSettings(), provider: 'claude-pro', claudeModel: 'sonnet' }, all);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.patch.provider, 'claude-pro');
+  assert.equal(ok.patch.claudeModel, 'sonnet');
+  const bad = buildSettingsPatch({ ...defaultSettings(), provider: 'openai', claudeModel: 'gpt' }, all);
+  assert.equal(bad.ok, false);
+  assert.deepEqual(Object.keys(bad.errors).sort(), ['claudeModel', 'provider']);
+});

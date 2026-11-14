@@ -8,14 +8,16 @@
 
 const { PROVIDERS } = require('../../../shared/contracts');
 const { createGeminiProvider } = require('./gemini');
+const { createClaudeProvider } = require('./claude');
 
 const FACTORIES = {
   [PROVIDERS.GEMINI]: createGeminiProvider,
+  [PROVIDERS.CLAUDE_PRO]: createClaudeProvider,
 };
 
 /**
  * @param {string} name   PROVIDERS value
- * @param {{ env?: NodeJS.ProcessEnv, clientFactory?: Function }} opts
+ * @param {{ env?: NodeJS.ProcessEnv, settings?: { get(): object }, clientFactory?: Function }} opts
  */
 function createProvider(name, opts = {}) {
   const factory = FACTORIES[name];
