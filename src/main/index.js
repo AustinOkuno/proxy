@@ -9,7 +9,8 @@
  */
 
 const path = require('node:path');
-const { app, ipcMain } = require('electron');
+const { pathToFileURL } = require('node:url');
+const { app, ipcMain, BrowserWindow, Menu, Tray, nativeImage } = require('electron');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env'), quiet: true });
 
@@ -27,7 +28,66 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+const RENDERER_HTML = path.join(__dirname, '..', 'renderer', 'index.html');
+const RENDERER_URL = pathToFileURL(RENDERER_HTML).href;
+
 let shell = null;
+let tray = null;
+let quitting = false;
+
+/** A small filled circle, drawn in code so no icon file is needed. */
+function trayIcon() {
+  const size = 22;
+  const buf = Buffer.alloc(size * size * 4);
+  const c = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x - c, y - c);
+      const a = Math.max(0, Math.min(1, 9.5 - d)); // anti-aliased edge
+      const i = (y * size + x) * 4; // BGRA
+      buf[i] = 0xf5; buf[i + 1] = 0x8a; buf[i + 2] = 0x4c; buf[i + 3] = Math.round(a * 255);
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size });
+}
+
+function createTray() {
+  try {
+    tray = new Tray(trayIcon());
+    tray.setToolTip('Proxy');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Show panel', click: () => shell && shell.showPanel() },
+      { type: 'separator' },
+      { label: 'Quit Proxy', click: () => app.quit() },
+    ]));
+    tray.on('click', () => shell && shell.showPanel());
+  } catch (err) {
+    console.warn(`[main] tray icon unavailable: ${err.message}. Quit with Ctrl+Q in the panel.`);
+  }
+}
+
+function isPanel(win) {
+  return !win.isDestroyed() && win.webContents.getURL() === RENDERER_URL;
+}
+
+// Closing the panel (its X button) only hides it: the app keeps running so the
+// hotkeys still work. Quit from the tray menu or with Ctrl+Q (File > Quit).
+app.on('browser-window-created', (_event, win) => {
+  win.on('close', (e) => {
+    if (quitting || !isPanel(win)) return;
+    e.preventDefault();
+    if (win.isFullScreen()) {
+      win.once('leave-full-screen', () => win.hide());
+      win.setFullScreen(false);
+    } else {
+      win.hide();
+    }
+  });
+});
+
+app.on('before-quit', () => {
+  quitting = true;
+});
 
 app.whenReady().then(async () => {
   const dataDir = process.env.PROXY_DATA_DIR || app.getPath('userData');
@@ -37,13 +97,14 @@ app.whenReady().then(async () => {
   shell = await createShell({
     settings: core.settings,
     preloadPath: path.join(__dirname, '..', 'preload', 'preload.js'),
-    rendererHtmlPath: path.join(__dirname, '..', 'renderer', 'index.html'),
+    rendererHtmlPath: RENDERER_HTML,
   });
 
   core.registerIpc(ipcMain, { sendToPanel: shell.sendToPanel });
   shell.registerIpc(ipcMain);
 
   await shell.start();
+  createTray();
 });
 
 app.on('second-instance', () => {
@@ -54,5 +115,6 @@ app.on('will-quit', () => {
   if (shell) shell.dispose();
 });
 
-// Linux: quitting is explicit (tray/menu later); closing the panel quits for v0.
-app.on('window-all-closed', () => app.quit());
+// Quitting is explicit (tray menu or Ctrl+Q). Without this handler Electron
+// would quit when the last window closes; the panel only hides anyway.
+app.on('window-all-closed', () => {});
