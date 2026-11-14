@@ -68,6 +68,15 @@ const conversation = createConversation({
 function renderChat() {
   messageList.render(conversation.visibleMessages(), { loading: conversation.loading, canRetry: conversation.canRetry() });
   sidebar.setCurrent(conversation.sessionId);
+  updateSendButton();
+}
+
+/** Stop the reply the open chat is waiting for (Stop button or Esc). */
+function stopReply() {
+  if (!conversation.busy) return false;
+  conversation.stop();
+  ui.input.focus();
+  return true;
 }
 
 const sidebar = createSidebar($('session-list'), $('session-empty'), {
@@ -130,8 +139,14 @@ function renderAttachments() {
   updateSendButton();
 }
 
+/** While a reply is on its way the Send button turns into Stop. */
 function updateSendButton() {
-  ui.send.disabled = !canSend({ text: ui.input.value, images: attachments });
+  const busy = conversation.busy;
+  ui.send.classList.toggle('stop', busy);
+  ui.send.textContent = busy ? 'Stop' : 'Send';
+  ui.send.title = busy ? 'Stop the reply (Esc)' : 'Send (Enter)';
+  ui.send.setAttribute('aria-label', busy ? 'Stop the reply' : 'Send');
+  ui.send.disabled = busy ? false : !canSend({ text: ui.input.value, images: attachments });
 }
 
 function autosize() {
@@ -140,6 +155,8 @@ function autosize() {
 }
 
 function submitComposer() {
+  // While a reply is on its way, Enter keeps the draft; the button is Stop.
+  if (conversation.busy) return;
   const draft = { text: ui.input.value, images: attachments };
   if (!canSend(draft)) return;
   conversation.send(draft);
@@ -152,7 +169,7 @@ function submitComposer() {
 
 $('composer').addEventListener('submit', (e) => {
   e.preventDefault();
-  submitComposer();
+  if (!stopReply()) submitComposer();
 });
 
 ui.input.addEventListener('keydown', (e) => {
@@ -257,7 +274,9 @@ $('btn-fullscreen').addEventListener('click', async () => {
 $('btn-hide').addEventListener('click', () => attempt('Hide', () => proxy.window.hide()));
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !ui.settingsView.hidden) showView('chat');
+  if (e.key !== 'Escape' || e.isComposing) return;
+  if (!ui.settingsView.hidden) showView('chat');
+  else if (stopReply()) e.preventDefault();
 });
 
 proxy.on(EVENTS.WINDOW_STATE, applyWindowState);

@@ -42,3 +42,9 @@ test('formatSessionTime', () => {
   assert.equal(formatSessionTime(new Date(2025, 10, 3).getTime(), now), '2025-11-03');
   assert.equal(formatSessionTime(undefined, now), '');
 });
+
+test('a stopped reply gets its own bubble kind', () => {
+  assert.equal(bubbleKind({ role: 'assistant', stopped: true }), 'stopped');
+  assert.equal(bubbleKind({ role: 'assistant', stopped: true, error: 'x' }), 'error');
+  assert.equal(bubbleKind({ role: 'assistant', pending: true, stopping: true }), 'pending');
+});

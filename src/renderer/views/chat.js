@@ -73,8 +73,15 @@ export function createMessageList(container, { copy, retry }) {
           ]),
           el('div', { className: 'bubble-text', text: message.error }),
         ]);
+      case 'stopped':
+        return el('div', { className: 'bubble assistant stopped' }, [
+          el('div', { className: 'reply-head' }, [
+            el('span', { className: 'stopped-label', text: 'Stopped' }),
+            canRetry && retry ? retryButton() : null,
+          ]),
+        ]);
       case 'pending':
-        return el('div', { className: 'bubble assistant pending', text: 'Thinking…' });
+        return el('div', { className: 'bubble assistant pending', text: message.stopping ? 'Stopping…' : 'Thinking…' });
       default:
         return el('div', { className: 'bubble assistant muted', text: '(empty reply)' });
     }

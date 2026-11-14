@@ -30,6 +30,15 @@ const api = {
   chat: {
     /** @param {import('../shared/contracts').ChatSendRequest} req */
     send: invoke(INVOKE.CHAT_SEND),
+    /**
+     * Stop a send that is still waiting on the model. Pass the requestId given to
+     * send(), or { sessionId } to stop every request in that chat.
+     * @param {string | { requestId?: string, sessionId?: string }} target
+     */
+    cancel: (target) => ipcRenderer.invoke(
+      INVOKE.CHAT_CANCEL,
+      typeof target === 'string' ? { requestId: target } : { ...(target || {}) },
+    ),
   },
   history: {
     list: invoke(INVOKE.HISTORY_LIST),

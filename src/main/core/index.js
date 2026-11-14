@@ -55,6 +55,7 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
     };
 
     ipcMain.handle(INVOKE.CHAT_SEND, (_e, req) => chat.send(req));
+    ipcMain.handle(INVOKE.CHAT_CANCEL, (_e, arg) => chat.cancel(arg));
     ipcMain.handle(INVOKE.HISTORY_LIST, () => history.listSessions());
     ipcMain.handle(INVOKE.HISTORY_GET, (_e, arg) => history.getSession(idOf(arg)));
     ipcMain.handle(INVOKE.HISTORY_CREATE, () => history.createSession());
@@ -84,7 +85,7 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
   return {
     settings: { get: settings.get, update: settings.update, onChange: settings.onChange },
     history,
-    chat: { send: chat.send },
+    chat: { send: chat.send, cancel: chat.cancel },
     registerIpc,
   };
 }

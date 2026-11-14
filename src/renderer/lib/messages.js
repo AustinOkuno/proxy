@@ -46,13 +46,14 @@ export function replySections(message) {
 /**
  * Kind of bubble to render for a message.
  * @param {Message & { pending?: boolean }} message
- * @returns {'user'|'assistant'|'error'|'pending'|'empty'}
+ * @returns {'user'|'assistant'|'error'|'stopped'|'pending'|'empty'}
  */
 export function bubbleKind(message) {
   if (!message) return 'empty';
   if (message.pending) return 'pending';
   if (message.role === 'user') return 'user';
   if (message.error) return 'error';
+  if (message.stopped) return 'stopped';
   return replySections(message).length ? 'assistant' : 'empty';
 }
 

@@ -141,7 +141,7 @@ test('createProvider knows gemini and rejects unknown names', () => {
 
 // ---- Retries, temporary fallback and image shrinking ----
 
-const { STICKY_FALLBACK_MS, RETRY_DELAYS_MS } = require('../../src/main/core/llm/gemini');
+const { STICKY_FALLBACK_MS, RETRY_DELAYS_MS, STOPPED_MESSAGE, DEADLINE_MS, deadlineMessage } = require('../../src/main/core/llm/gemini');
 const { createImageShrinker } = require('../../src/main/core/llm/images');
 
 function httpError(status, message = `HTTP ${status}`) {
@@ -242,4 +242,85 @@ test('big screenshots are scaled down before upload, small ones are left alone',
 test('without Electron the shrinker passes images through', () => {
   const img = { mimeType: 'image/png', dataBase64: 'AAAA' };
   assert.equal(createImageShrinker({ nativeImage: null })(img), img);
+});
+
+// ---- Stop and deadline ----
+
+/** Client whose calls hang until their abortSignal fires (or forever if ignoreAbort). */
+function hangingClient({ ignoreAbort = false } = {}) {
+  return fakeClient((params) => new Promise((_resolve, reject) => {
+    const signal = params.config && params.config.abortSignal;
+    if (ignoreAbort || !signal) return;
+    signal.addEventListener('abort', () => {
+      const e = new Error('This operation was aborted');
+      e.name = 'AbortError';
+      reject(e);
+    });
+  }));
+}
+
+const quiet = { warn() {} };
+
+test('aborting the signal stops a request in flight and passes the signal to the SDK', async () => {
+  const fake = hangingClient();
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' }, clientFactory: fake.factory, logger: quiet });
+  const ctl = new AbortController();
+  const pending = p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both', signal: ctl.signal });
+  await new Promise((r) => setImmediate(r));
+  assert.ok(fake.calls[0].params.config.abortSignal instanceof AbortSignal);
+  ctl.abort();
+  await assert.rejects(pending, (err) => err.stopped === true && err.message === STOPPED_MESSAGE);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(fake.calls.length, 1, 'no retries after Stop');
+});
+
+test('Stop works even if the SDK ignores the abort', async () => {
+  const fake = hangingClient({ ignoreAbort: true });
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' }, clientFactory: fake.factory, logger: quiet });
+  const ctl = new AbortController();
+  const pending = p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both', signal: ctl.signal });
+  await new Promise((r) => setImmediate(r));
+  ctl.abort();
+  await assert.rejects(pending, (err) => err.stopped === true);
+});
+
+test('Stop during the wait before a retry cancels the retry', async () => {
+  const fake = fakeClient(() => { throw httpError(503); });
+  let sleeping;
+  const p = createGeminiProvider({
+    env: { GEMINI_API_KEY: 'k' },
+    clientFactory: fake.factory,
+    sleep: () => new Promise((r) => { sleeping = r; }),
+    logger: quiet,
+  });
+  const ctl = new AbortController();
+  const pending = p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both', signal: ctl.signal });
+  await new Promise((r) => setImmediate(r));
+  assert.ok(sleeping, 'waiting to retry');
+  ctl.abort();
+  await assert.rejects(pending, (err) => err.stopped === true);
+  sleeping();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(fake.calls.length, 1, 'the retry never happened');
+});
+
+test('an already-aborted signal never calls the SDK', async () => {
+  const fake = hangingClient();
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' }, clientFactory: fake.factory, logger: quiet });
+  await assert.rejects(
+    p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both', signal: AbortSignal.abort() }),
+    (err) => err.stopped === true,
+  );
+  assert.equal(fake.calls.length, 0);
+});
+
+test('a request that hangs past the deadline fails with a clear message', async () => {
+  const fake = hangingClient({ ignoreAbort: true });
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' }, clientFactory: fake.factory, logger: quiet, deadlineMs: 30 });
+  await assert.rejects(ask(p), (err) => !err.stopped && /didn't answer within 1 second.*Retry/.test(err.message));
+});
+
+test('the default deadline is a few minutes at most', () => {
+  assert.ok(DEADLINE_MS >= 60_000 && DEADLINE_MS <= 5 * 60_000);
+  assert.match(deadlineMessage(DEADLINE_MS), /within 2\.5 minutes/);
 });

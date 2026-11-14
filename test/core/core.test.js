@@ -142,3 +142,51 @@ test('chat.send with retry replaces a failed reply without a new user message', 
   await assert.rejects(core.chat.send({ sessionId: first.sessionId, retry: true }), /nothing to retry/);
   await assert.rejects(core.chat.send({ sessionId: 'gone', retry: true }), /no longer exists/);
 });
+
+// ---- Stop ----
+
+/** Provider that waits until its signal aborts (like a hung Gemini call). */
+const hangUntilAborted = ({ signal }) => new Promise((_resolve, reject) => {
+  signal.addEventListener('abort', () => reject(Object.assign(new Error('Stopped.'), { stopped: true })));
+});
+
+test('chat.cancel stops a send: it resolves with a stopped reply that can be retried', async () => {
+  let hang = true;
+  const { core } = await makeCore((args) => (hang ? hangUntilAborted(args) : { answer: 'A', explanation: '' }));
+  const pending = core.chat.send({ sessionId: null, text: 'q', images: [], requestId: 'r1' });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(core.chat.cancel({ requestId: 'r1' }), { ok: true, cancelled: 1 });
+  const r = await pending;
+  assert.equal(r.assistantMessage.stopped, true);
+  assert.equal(r.assistantMessage.error, undefined);
+  const saved = core.history.getSession(r.sessionId).messages;
+  assert.equal(saved.at(-1).stopped, true, 'the Stopped marker is kept in history');
+
+  hang = false;
+  const again = await core.chat.send({ sessionId: r.sessionId, retry: true, requestId: 'r2' });
+  assert.equal(again.assistantMessage.answer, 'A');
+  assert.deepEqual(core.history.getSession(r.sessionId).messages.map((m) => m.role), ['user', 'assistant']);
+  assert.deepEqual(core.chat.cancel({ requestId: 'r2' }), { ok: true, cancelled: 0 }, 'finished requests are not cancelled');
+});
+
+test('chat.cancel by sessionId, and a cancel that arrives first stops the request at once', async () => {
+  let called = 0;
+  const { core } = await makeCore((args) => { called += 1; return hangUntilAborted(args); });
+  const s = core.history.createSession();
+  const pending = core.chat.send({ sessionId: s.id, text: 'q', images: [] });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(core.chat.cancel({ sessionId: s.id }).cancelled, 1);
+  assert.equal((await pending).assistantMessage.stopped, true);
+
+  core.chat.cancel({ requestId: 'early' });
+  const r = await core.chat.send({ sessionId: s.id, text: 'q2', images: [], requestId: 'early' });
+  assert.equal(r.assistantMessage.stopped, true);
+  assert.equal(called, 1, 'the early-cancelled request never reached the model');
+});
+
+test('registerIpc handles chat:cancel', async () => {
+  const { core } = await makeCore(() => ({ answer: 'A', explanation: '' }));
+  const handlers = {};
+  core.registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, { sendToPanel() {} });
+  assert.deepEqual(await handlers[INVOKE.CHAT_CANCEL]({}, { requestId: 'nope' }), { ok: true, cancelled: 0 });
+});

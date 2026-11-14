@@ -55,6 +55,7 @@ const PROVIDERS = Object.freeze({
 const INVOKE = Object.freeze({
   // Owner: Worker 2 (core)
   CHAT_SEND: 'chat:send', // (ChatSendRequest) -> ChatSendResult
+  CHAT_CANCEL: 'chat:cancel', // ({ requestId?, sessionId? }) -> { ok: true, cancelled: number }  stops a send still waiting on the model
   HISTORY_LIST: 'history:list', // () -> SessionSummary[]  (newest first)
   HISTORY_GET: 'history:get', // ({ id }) -> Session | null
   HISTORY_CREATE: 'history:create', // () -> Session  (empty session, the "New chat" button)
@@ -122,6 +123,8 @@ const EVENTS = Object.freeze({
  * @property {string} [answer]                  assistant: the direct answer section.
  * @property {string} [explanation]             assistant: the explanation section.
  * @property {string} [error]                   assistant: set instead of answer/explanation when the call failed.
+ * @property {boolean} [stopped]                assistant: true when the user pressed Stop before the model answered
+ *                                              (no answer/explanation/error). Retry can replace it.
  * @property {string} [answerStyle]             assistant: the ANSWER_STYLES value used for this reply.
  * @property {string} [model]                   assistant: the model that actually answered (after any fallback).
  */
@@ -155,15 +158,17 @@ const EVENTS = Object.freeze({
  * @property {string} text             May be empty when images are present.
  * @property {ImageData[]} images      May be empty when text is present.
  * @property {boolean} [retry]         true = ask the model again for this session's last user
- *                                     message (dropping a failed reply after it); text and images
- *                                     are ignored. The result's userMessage is that existing message.
+ *                                     message (dropping a failed or stopped reply after it); text and
+ *                                     images are ignored. The result's userMessage is that existing message.
+ * @property {string} [requestId]      Caller-chosen id so chat:cancel can stop this request.
  */
 
 /**
  * @typedef {Object} ChatSendResult
  * @property {string} sessionId
  * @property {Message} userMessage
- * @property {Message} assistantMessage   On model failure this has `error` set; chat:send does not reject for model errors.
+ * @property {Message} assistantMessage   On model failure this has `error` set; when stopped, `stopped: true`.
+ *                                        chat:send does not reject for model errors or stops.
  */
 
 /**
