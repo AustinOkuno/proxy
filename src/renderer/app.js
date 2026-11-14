@@ -57,6 +57,7 @@ async function attempt(what, fn) {
 
 const messageList = createMessageList($('messages'), {
   copy: (text) => proxy.clipboard.writeText(text),
+  retry: () => conversation.retry(),
 });
 
 const conversation = createConversation({
@@ -65,7 +66,7 @@ const conversation = createConversation({
 });
 
 function renderChat() {
-  messageList.render(conversation.visibleMessages(), { loading: conversation.loading });
+  messageList.render(conversation.visibleMessages(), { loading: conversation.loading, canRetry: conversation.canRetry() });
   sidebar.setCurrent(conversation.sessionId);
 }
 

@@ -60,8 +60,8 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
     visibleMessages() {
       const out = [...current.messages];
       for (const p of current.pending) {
-        out.push(p.user);
-        out.push({ id: `${p.user.id}-reply`, role: 'assistant', pending: true, createdAt: p.user.createdAt });
+        if (p.user) out.push(p.user);
+        out.push({ id: `${p.id || p.user.id}-reply`, role: 'assistant', pending: true, createdAt: p.createdAt || p.user.createdAt });
       }
       return out;
     },
@@ -136,7 +136,45 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
             role: 'assistant',
             createdAt: now(),
             error: `Couldn't send: ${message}`,
+            local: true, // never reached the app's history, so it can't be retried
           });
+        } finally {
+          convo.pending.splice(convo.pending.indexOf(entry), 1);
+          onChange();
+        }
+        return result;
+      });
+      queue = job.catch(() => {});
+      return job;
+    },
+
+    /** True when the open chat ends in a failed reply that the app can ask the model for again. */
+    canRetry() {
+      const last = current.messages[current.messages.length - 1];
+      return !!current.id && !current.pending.length && !!last && last.role === 'assistant' && !!last.error && !last.local;
+    },
+
+    /**
+     * Ask the model again for the last message of the open chat, replacing the
+     * failed reply. Never rejects.
+     */
+    retry() {
+      if (!this.canRetry()) return Promise.resolve(null);
+      const convo = current;
+      const failed = convo.messages.pop();
+      const entry = { id: localId(), createdAt: now() };
+      convo.pending.push(entry);
+      onChange();
+
+      const job = queue.then(async () => {
+        let result = null;
+        try {
+          result = await api.chat.send({ sessionId: convo.id, retry: true, text: '', images: [] });
+          if (!result || !result.assistantMessage) throw new Error('The app returned an empty reply.');
+          convo.messages.push(result.assistantMessage);
+        } catch (err) {
+          const message = (err && err.message) || String(err);
+          convo.messages.push({ ...failed, error: `${failed.error}\n\nRetry failed: ${message}` });
         } finally {
           convo.pending.splice(convo.pending.indexOf(entry), 1);
           onChange();

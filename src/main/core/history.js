@@ -235,6 +235,17 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
       return copy(m);
     },
 
+    /** Remove one message (used by retry to drop a failed reply). Returns true if it was there. */
+    removeMessage(id, messageId) {
+      const s = requireSession(id);
+      const i = s.messages.findIndex((m) => m.id === messageId);
+      if (i < 0) return false;
+      s.messages.splice(i, 1);
+      s.updatedAt = tick();
+      save(s);
+      return true;
+    },
+
     /** Internal: subscribe to any change in the session list. Returns unsubscribe. */
     onChange(cb) {
       listeners.add(cb);

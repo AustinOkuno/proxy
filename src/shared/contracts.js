@@ -118,6 +118,7 @@ const EVENTS = Object.freeze({
  * @property {string} [explanation]             assistant: the explanation section.
  * @property {string} [error]                   assistant: set instead of answer/explanation when the call failed.
  * @property {string} [answerStyle]             assistant: the ANSWER_STYLES value used for this reply.
+ * @property {string} [model]                   assistant: the model that actually answered (after any fallback).
  */
 
 /**
@@ -138,6 +139,9 @@ const EVENTS = Object.freeze({
  * @property {string|null} sessionId   null = start a new session with this message.
  * @property {string} text             May be empty when images are present.
  * @property {ImageData[]} images      May be empty when text is present.
+ * @property {boolean} [retry]         true = ask the model again for this session's last user
+ *                                     message (dropping a failed reply after it); text and images
+ *                                     are ignored. The result's userMessage is that existing message.
  */
 
 /**
@@ -222,6 +226,7 @@ function defaultSettings() {
  * @typedef {Object} ProviderReply
  * @property {string} answer
  * @property {string} explanation
+ * @property {string} [model]   The model that actually answered.
  */
 
 module.exports = {
