@@ -6,6 +6,7 @@
  */
 
 const { systemInstruction, buildContents, parseReply, applyStyle } = require('./prompt');
+const { createImageShrinker, electronNativeImage } = require('./images');
 
 // Google limits the 2.5 models to keys that already used them, so new free keys
 // get "model not found" for gemini-2.5-flash. Default to a current Flash model and,
@@ -13,6 +14,14 @@ const { systemInstruction, buildContents, parseReply, applyStyle } = require('./
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-flash-latest'];
 const TIMEOUT_MS = 90_000;
+// Gemini answers 500/503/504 now and then, mostly when it's busy. Retry the same
+// model after these delays, then try the next (lighter) model once.
+const RETRY_DELAYS_MS = [1_500, 4_000];
+// Stop retrying once a request has been going this long; the user can press Retry.
+const RETRY_BUDGET_MS = 120_000;
+// After falling back because the main model kept failing, stay on the fallback
+// this long before trying the main model again, so every message isn't slow.
+const STICKY_FALLBACK_MS = 10 * 60_000;
 const MISSING_KEY_MESSAGE = 'Gemini API key missing. Add GEMINI_API_KEY to .env and restart.';
 
 const RESPONSE_SCHEMA = {
@@ -44,6 +53,13 @@ function isModelUnavailable(err) {
   return errStatus(err) === 404 || isNoFreeQuota(err);
 }
 
+/** Errors worth retrying: Gemini overloaded or slow, or the connection dropped. */
+function isTransient(err) {
+  if (errStatus(err) >= 500) return true;
+  const msg = String((err && err.message) || '');
+  return (err && err.name === 'AbortError') || /abort|timed? ?out|ECONNRESET|socket hang up|UND_ERR/i.test(msg);
+}
+
 /** Turn an SDK / network error into a short, user-readable message (never containing the key). */
 function friendlyError(err, apiKey) {
   const status = errStatus(err);
@@ -54,8 +70,8 @@ function friendlyError(err, apiKey) {
   else if (status === 429 && isNoFreeQuota(err)) out = `Your Gemini key has no quota for this model. Set GEMINI_MODEL=${FALLBACK_MODELS[0]} in .env and restart.`;
   else if (status === 429) out = 'Gemini quota or rate limit reached. Wait a bit and try again.';
   else if (status === 404) out = `Gemini model not found. Set GEMINI_MODEL=${DEFAULT_MODEL} (or ${FALLBACK_MODELS[0]}) in .env and restart.`;
-  else if (status >= 500) out = `Gemini is having trouble right now (HTTP ${status}). Try again in a moment.`;
-  else if (/abort|timed? ?out/i.test(msg) || (err && err.name === 'AbortError')) out = 'Gemini took too long to answer. Try again.';
+  else if (status >= 500) out = `Gemini is busy or having trouble right now (HTTP ${status}), even after retrying. Press Retry in a moment.`;
+  else if (/abort|timed? ?out/i.test(msg) || (err && err.name === 'AbortError')) out = 'Gemini took too long to answer, even after retrying. Press Retry.';
   else if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|network/i.test(msg)) out = 'Could not reach Gemini. Check your internet connection.';
   else out = `Gemini error: ${msg.slice(0, 300) || 'unknown error'}`;
   if (apiKey) out = out.split(apiKey).join('[key]');
@@ -63,31 +79,85 @@ function friendlyError(err, apiKey) {
 }
 
 /**
- * @param {{ env?: NodeJS.ProcessEnv, clientFactory?: (apiKey: string) => any }} opts
+ * @param {{
+ *   env?: NodeJS.ProcessEnv,
+ *   clientFactory?: (apiKey: string) => any,
+ *   shrinkImage?: (img: object) => object,
+ *   sleep?: (ms: number) => Promise<void>,
+ *   now?: () => number,
+ *   logger?: Pick<Console,'warn'>,
+ * }} opts
  */
-function createGeminiProvider({ env = {}, clientFactory = defaultClientFactory } = {}) {
+function createGeminiProvider({
+  env = {},
+  clientFactory = defaultClientFactory,
+  shrinkImage = createImageShrinker({ nativeImage: electronNativeImage() }),
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  now = Date.now,
+  logger = console,
+} = {}) {
   const apiKey = String(env.GEMINI_API_KEY || '').trim();
   const configured = String(env.GEMINI_MODEL || '').trim() || DEFAULT_MODEL;
   const candidates = [configured, DEFAULT_MODEL, ...FALLBACK_MODELS].filter((m, i, a) => a.indexOf(m) === i);
   let model = configured;
   let client = null;
+  /** Temporary fallback after repeated 5xx/timeouts: { model, until }. */
+  let sticky = null;
 
-  async function call(params) {
-    let lastErr = null;
-    for (const m of candidates.slice(candidates.indexOf(model))) {
+  /** One model, retried with backoff while the errors look temporary. */
+  async function callModel(m, params, start) {
+    for (let attempt = 0; ; attempt++) {
       try {
-        const response = await client.models.generateContent({ ...params, model: m });
-        if (m !== model) {
-          console.warn(`[core] Gemini model ${model} is not available to this key; using ${m}.`);
+        return await client.models.generateContent({ ...params, model: m });
+      } catch (err) {
+        const delay = RETRY_DELAYS_MS[attempt];
+        if (!isTransient(err) || delay === undefined || now() - start + delay > RETRY_BUDGET_MS) throw err;
+        logger.warn(`[core] Gemini ${m} failed (${errStatus(err) || err.message}); retrying in ${delay} ms.`);
+        await sleep(delay);
+      }
+    }
+  }
+
+  /**
+   * Try the current model, then the next ones: permanently when a model isn't
+   * available to this key, and for STICKY_FALLBACK_MS when Gemini keeps failing.
+   */
+  async function call(params) {
+    const start = now();
+    if (sticky && start >= sticky.until) sticky = null;
+    const from = sticky ? sticky.model : model;
+    const list = candidates.slice(Math.max(candidates.indexOf(model), candidates.indexOf(from)));
+    let skippedOnlyUnavailable = true;
+    let lastErr = null;
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      try {
+        const response = await callModel(m, params, start);
+        if (m !== from && skippedOnlyUnavailable && !sticky) {
+          logger.warn(`[core] Gemini model ${model} is not available to this key; using ${m}.`);
           model = m;
+        } else if (m !== from) {
+          sticky = { model: m, until: now() + STICKY_FALLBACK_MS };
         }
         return response;
       } catch (err) {
         lastErr = err;
-        if (!isModelUnavailable(err)) break;
+        if (isModelUnavailable(err)) continue;
+        if (isTransient(err) && i + 1 < list.length && now() - start < RETRY_BUDGET_MS) {
+          skippedOnlyUnavailable = false;
+          logger.warn(`[core] Gemini ${m} keeps failing; trying ${list[i + 1]}.`);
+          continue;
+        }
+        break;
       }
     }
     throw lastErr;
+  }
+
+  function shrinkMessages(messages) {
+    return messages.map((msg) => (Array.isArray(msg.images) && msg.images.length
+      ? { ...msg, images: msg.images.map((img) => shrinkImage(img)) }
+      : msg));
   }
 
   return {
@@ -97,7 +167,7 @@ function createGeminiProvider({ env = {}, clientFactory = defaultClientFactory }
     },
     async generate({ messages, answerStyle }) {
       if (!apiKey) throw new Error(MISSING_KEY_MESSAGE);
-      const contents = buildContents(messages);
+      const contents = buildContents(shrinkMessages(messages || []));
       if (!contents.length) throw new Error('Nothing to send to Gemini.');
       if (!client) client = clientFactory(apiKey);
 
@@ -128,4 +198,4 @@ function createGeminiProvider({ env = {}, clientFactory = defaultClientFactory }
   };
 }
 
-module.exports = { createGeminiProvider, friendlyError, MISSING_KEY_MESSAGE, DEFAULT_MODEL, FALLBACK_MODELS, RESPONSE_SCHEMA };
+module.exports = { createGeminiProvider, friendlyError, MISSING_KEY_MESSAGE, DEFAULT_MODEL, FALLBACK_MODELS, RESPONSE_SCHEMA, RETRY_DELAYS_MS, STICKY_FALLBACK_MS, isTransient };

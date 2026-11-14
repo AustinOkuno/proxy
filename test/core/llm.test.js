@@ -138,3 +138,108 @@ test('createProvider knows gemini and rejects unknown names', () => {
   assert.equal(createProvider('gemini', { env: {} }).name, 'gemini');
   assert.throws(() => createProvider('nope', {}), /Unknown/);
 });
+
+// ---- Retries, temporary fallback and image shrinking ----
+
+const { STICKY_FALLBACK_MS, RETRY_DELAYS_MS } = require('../../src/main/core/llm/gemini');
+const { createImageShrinker } = require('../../src/main/core/llm/images');
+
+function httpError(status, message = `HTTP ${status}`) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
+/** Provider with a fake clock: sleeps advance time instantly. */
+function retryProvider(respond, env = {}) {
+  const fake = fakeClient(respond);
+  const clock = { t: 0, sleeps: [] };
+  const p = createGeminiProvider({
+    env: { GEMINI_API_KEY: 'k', ...env },
+    clientFactory: fake.factory,
+    sleep: async (ms) => { clock.sleeps.push(ms); clock.t += ms; },
+    now: () => clock.t,
+    logger: { warn() {} },
+  });
+  return { p, fake, clock };
+}
+
+const ask = (p) => p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both' });
+const OK = { text: '{"answer":"ok","explanation":""}' };
+
+test('a 503 is retried on the same model after a short wait', async () => {
+  let n = 0;
+  const { p, fake, clock } = retryProvider(() => { if (n++ === 0) throw httpError(503); return OK; });
+  assert.equal((await ask(p)).answer, 'ok');
+  assert.deepEqual(fake.calls.map((c) => c.params.model), [DEFAULT_MODEL, DEFAULT_MODEL]);
+  assert.deepEqual(clock.sleeps, [RETRY_DELAYS_MS[0]]);
+});
+
+test('repeated 5xx falls back to the lite model and stays there for a while', async () => {
+  const { p, fake, clock } = retryProvider((params) => {
+    if (params.model === DEFAULT_MODEL) throw httpError(504);
+    return OK;
+  });
+  assert.equal((await ask(p)).answer, 'ok');
+  const models = fake.calls.map((c) => c.params.model);
+  assert.deepEqual(models, [...Array(RETRY_DELAYS_MS.length + 1).fill(DEFAULT_MODEL), FALLBACK_MODELS[0]]);
+  assert.equal(p.model, DEFAULT_MODEL, 'a temporary fallback does not change the configured model');
+
+  await ask(p);
+  assert.equal(fake.calls.at(-1).params.model, FALLBACK_MODELS[0], 'next message goes straight to the fallback');
+  assert.equal(fake.calls.length, models.length + 1);
+
+  clock.t += STICKY_FALLBACK_MS;
+  await ask(p).catch(() => {});
+  assert.equal(fake.calls[models.length + 1].params.model, DEFAULT_MODEL, 'tries the main model again later');
+});
+
+test('errors that are not temporary are not retried', async () => {
+  const { p, fake, clock } = retryProvider(() => { throw httpError(400, 'Invalid argument'); });
+  await assert.rejects(ask(p), /Gemini error/);
+  assert.equal(fake.calls.length, 1);
+  assert.deepEqual(clock.sleeps, []);
+});
+
+test('when every model keeps failing the error says retries happened', async () => {
+  const { p } = retryProvider(() => { throw httpError(503); });
+  await assert.rejects(ask(p), /HTTP 503\), even after retrying/);
+});
+
+function fakeNativeImage() {
+  const made = [];
+  const img = (w, h, bytes) => ({
+    isEmpty: () => false,
+    getSize: () => ({ width: w, height: h }),
+    resize: ({ width, height }) => { made.push([width, height]); return img(width, height, 1000); },
+    toPNG: () => Buffer.alloc(bytes),
+    toJPEG: () => Buffer.alloc(10),
+  });
+  return {
+    made,
+    createFromBuffer: (buf) => {
+      const [w, h] = buf.toString().split('x').map(Number);
+      return img(w, h, buf.length);
+    },
+  };
+}
+
+const b64 = (s) => Buffer.from(s).toString('base64');
+
+test('big screenshots are scaled down before upload, small ones are left alone', () => {
+  const ni = fakeNativeImage();
+  const shrink = createImageShrinker({ nativeImage: ni, maxSide: 2048 });
+  const small = { mimeType: 'image/png', dataBase64: b64('800x600') };
+  assert.equal(shrink(small), small);
+  const big = shrink({ mimeType: 'image/png', dataBase64: b64('3840x2160') });
+  assert.deepEqual(ni.made, [[2048, 1152]]);
+  assert.equal(big.mimeType, 'image/png');
+  assert.equal(big.width, 2048);
+  shrink({ mimeType: 'image/png', dataBase64: b64('3840x2160') });
+  assert.equal(ni.made.length, 1, 'cached');
+});
+
+test('without Electron the shrinker passes images through', () => {
+  const img = { mimeType: 'image/png', dataBase64: 'AAAA' };
+  assert.equal(createImageShrinker({ nativeImage: null })(img), img);
+});

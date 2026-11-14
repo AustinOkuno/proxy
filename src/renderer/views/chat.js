@@ -5,9 +5,9 @@ import { bubbleKind, imageToDataUrl, replySections } from '../lib/messages.js';
 
 /**
  * @param {HTMLElement} container
- * @param {{ copy: (text: string) => Promise<unknown> }} deps
+ * @param {{ copy: (text: string) => Promise<unknown>, retry?: () => unknown }} deps
  */
-export function createMessageList(container, { copy }) {
+export function createMessageList(container, { copy, retry }) {
   function imageThumb(image) {
     const img = el('img', {
       className: 'thumb',
@@ -32,7 +32,16 @@ export function createMessageList(container, { copy }) {
     return btn;
   }
 
-  function bubble(message) {
+  function retryButton() {
+    const btn = el('button', { type: 'button', className: 'btn small retry', text: 'Retry', title: 'Ask again' });
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      retry();
+    });
+    return btn;
+  }
+
+  function bubble(message, { canRetry = false } = {}) {
     switch (bubbleKind(message)) {
       case 'user':
         return el('div', { className: 'bubble user' }, [
@@ -57,7 +66,10 @@ export function createMessageList(container, { copy }) {
         );
       case 'error':
         return el('div', { className: 'bubble error', role: 'alert' }, [
-          el('div', { className: 'reply-label', text: 'Error' }),
+          el('div', { className: 'reply-head' }, [
+            el('span', { className: 'reply-label', text: 'Error' }),
+            canRetry && retry ? retryButton() : null,
+          ]),
           el('div', { className: 'bubble-text', text: message.error }),
         ]);
       case 'pending':
@@ -70,9 +82,9 @@ export function createMessageList(container, { copy }) {
   return {
     /**
      * @param {object[]} messages
-     * @param {{ loading?: boolean }} [opts]
+     * @param {{ loading?: boolean, canRetry?: boolean }} [opts]  canRetry: show Retry on the last bubble if it failed
      */
-    render(messages, { loading = false } = {}) {
+    render(messages, { loading = false, canRetry = false } = {}) {
       const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
       container.replaceChildren();
       if (loading) {
@@ -88,9 +100,12 @@ export function createMessageList(container, { copy }) {
         );
         return;
       }
-      for (const m of messages) {
-        container.append(el('div', { className: `row ${m.role === 'user' ? 'from-user' : 'from-assistant'}` }, [bubble(m)]));
-      }
+      messages.forEach((m, i) => {
+        const last = i === messages.length - 1;
+        container.append(el('div', { className: `row ${m.role === 'user' ? 'from-user' : 'from-assistant'}` }, [
+          bubble(m, { canRetry: canRetry && last }),
+        ]));
+      });
       if (nearBottom || messages[messages.length - 1].pending) {
         container.scrollTop = container.scrollHeight;
       }

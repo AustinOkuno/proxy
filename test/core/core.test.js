@@ -111,3 +111,25 @@ test('registerIpc handles every Worker 2 channel and emits events', async () => 
   assert.deepEqual(sent, [[EVENTS.SETTINGS_CHANGED, updated]]);
   assert.equal((await handlers[INVOKE.SETTINGS_GET]({})).answerStyle, 'answer');
 });
+
+test('chat.send with retry replaces a failed reply without a new user message', async () => {
+  let fail = true;
+  const { core, calls } = await makeCore(() => {
+    if (fail) throw new Error('Gemini is busy');
+    return { answer: 'A', explanation: 'E' };
+  });
+  const first = await core.chat.send({ sessionId: null, text: 'q', images: [] });
+  assert.match(first.assistantMessage.error, /busy/);
+
+  fail = false;
+  const r = await core.chat.send({ sessionId: first.sessionId, retry: true, text: '', images: [] });
+  assert.equal(r.assistantMessage.answer, 'A');
+  assert.equal(r.userMessage.id, first.userMessage.id);
+  const s = core.history.getSession(first.sessionId);
+  assert.deepEqual(s.messages.map((m) => m.role), ['user', 'assistant']);
+  assert.equal(s.messages[1].answer, 'A');
+  assert.equal(calls.at(-1).args.messages.length, 1, 'the model does not see the old error');
+
+  await assert.rejects(core.chat.send({ sessionId: first.sessionId, retry: true }), /nothing to retry/);
+  await assert.rejects(core.chat.send({ sessionId: 'gone', retry: true }), /no longer exists/);
+});

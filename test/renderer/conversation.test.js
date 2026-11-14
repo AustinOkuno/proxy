@@ -153,3 +153,36 @@ test('a slow open does not overwrite a later navigation', async () => {
   assert.equal(c.sessionId, null);
   assert.equal(c.visibleMessages().length, 0);
 });
+
+test('retry replaces the failed reply in place', async () => {
+  const api = fakeApi();
+  api.sessions.set('s9', { id: 's9', messages: [
+    { id: 'u', role: 'user', text: 'q' },
+    { id: 'e', role: 'assistant', error: 'HTTP 503' },
+  ] });
+  api.chat.send = async (req) => {
+    api.calls.push(req);
+    return { sessionId: 's9', userMessage: { id: 'u', role: 'user', text: 'q' }, assistantMessage: { id: 'a', role: 'assistant', answer: 'yes', explanation: '' } };
+  };
+  const c = createConversation({ api });
+  await c.open('s9');
+  assert.equal(c.canRetry(), true);
+  const p = c.retry();
+  assert.deepEqual(c.visibleMessages().map((m) => (m.pending ? 'pending' : m.role)), ['user', 'pending']);
+  assert.equal(c.canRetry(), false);
+  await p;
+  assert.deepEqual(api.calls[0], { sessionId: 's9', retry: true, text: '', images: [] });
+  assert.deepEqual(c.visibleMessages().map((m) => m.answer || m.text), ['q', 'yes']);
+  assert.equal(c.canRetry(), false);
+});
+
+test('a send that never reached the app cannot be retried', async () => {
+  const api = fakeApi();
+  const c = createConversation({ api });
+  fakeApi.failNext = new Error('ipc down');
+  const p = c.send({ text: 'hello' });
+  await tick();
+  api.release();
+  await p;
+  assert.equal(c.canRetry(), false);
+});

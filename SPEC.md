@@ -31,7 +31,8 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 - Normal chat with follow-ups. Each request sends the whole session's history (text and images) to the model.
 - **Answer style** (setting): `answer` only, `explanation` only, or `both` (default).
 - The model's reply is split into an **answer** section and an **explanation** section. Each has its own **Copy** button.
-- Model failures (no key, network, quota) show as an error bubble in the chat; they do not crash the app.
+- Model failures (no key, network, quota) show as an error bubble in the chat; they do not crash the app. Temporary Gemini failures (5xx, timeouts) are retried with backoff, then the lite model is used for 10 minutes. The last error bubble has a **Retry** button (`chat:send` with `retry: true`).
+- Screenshots larger than 2048 px on a side are scaled down for the copy sent to the model; history keeps the original.
 
 ### History
 - Persistent sessions, like ChatGPT/Claude: a session list (newest first), **New chat**, open an old session and continue it, rename, delete.
@@ -228,7 +229,7 @@ With `sendMode = wait`, step 2 instead adds the image as an attachment chip in t
 
 - Layout: session sidebar (collapsible, since the panel is narrow), message list, composer (textarea + attachments + Send), toolbar (Snip, Full screenshot, New chat, Full-screen toggle, Hide, Settings).
 - Settings view: hotkeys (text inputs with accelerator strings; validate non-empty or empty-to-disable), send mode, panel visibility, answer style. Saves through `proxy.settings.update`.
-- Assistant bubble: an "Answer" block and an "Explanation" block (only those with content), each with a Copy button using `proxy.clipboard.writeText`. Error messages render as an error bubble.
+- Assistant bubble: an "Answer" block and an "Explanation" block (only those with content), each with a Copy button using `proxy.clipboard.writeText`. Error messages render as an error bubble; the last one has a Retry button when the failed message was saved.
 - Enter sends, Shift+Enter is a newline. Paste of an image into the composer is a nice-to-have.
 - **Styling is separable:** all colors, fonts, radii and spacing are CSS variables in `styles/theme.css`. Component CSS in `styles/app.css` uses only those variables. No inline styles in JS except for dynamic sizing.
 - The CSP in `index.html` allows `data:` images only; don't load remote resources.

@@ -36,6 +36,7 @@ function cleanImages(images) {
 function createChat({ history, settings, getProvider, logger = console }) {
   /** @param {import('../../shared/contracts').ChatSendRequest} req */
   async function send(req = {}) {
+    if (req && req.retry === true) return retry(req.sessionId);
     const text = typeof req.text === 'string' ? req.text.slice(0, MAX_TEXT) : '';
     const images = cleanImages(req.images);
     if (!text.trim() && !images.length) throw new Error('Type a message or attach a screenshot first.');
@@ -44,26 +45,48 @@ function createChat({ history, settings, getProvider, logger = console }) {
     if (!sessionId || !history.getSession(sessionId)) sessionId = history.createSession().id;
 
     const userMessage = history.appendMessage(sessionId, { role: 'user', text, images });
+    return reply(sessionId, userMessage);
+  }
+
+  /**
+   * Ask the model again for the session's last user message. A failed reply
+   * after it is removed first, so the chat doesn't keep the old error.
+   */
+  async function retry(sessionId) {
+    const session = typeof sessionId === 'string' ? history.getSession(sessionId) : null;
+    if (!session) throw new Error('That chat no longer exists.');
+    const last = session.messages[session.messages.length - 1];
+    if (last && last.role === 'assistant') {
+      if (!last.error) throw new Error('The last reply did not fail, so there is nothing to retry.');
+      history.removeMessage(sessionId, last.id);
+    }
+    const msgs = history.getSession(sessionId).messages;
+    const userMessage = msgs[msgs.length - 1];
+    if (!userMessage || userMessage.role !== 'user') throw new Error('There is no message to retry.');
+    return reply(sessionId, userMessage);
+  }
+
+  async function reply(sessionId, userMessage) {
     const { answerStyle, provider: providerName } = settings.get();
 
-    let reply;
+    let out;
     try {
       const provider = getProvider(providerName);
       const session = history.getSession(sessionId);
       const result = await provider.generate({ messages: session ? session.messages : [userMessage], answerStyle });
-      reply = { answer: String(result.answer || ''), explanation: String(result.explanation || '') };
+      out = { answer: String(result.answer || ''), explanation: String(result.explanation || '') };
     } catch (err) {
       const message = (err && err.message) || 'The model call failed.';
       logger.warn(`[core] chat.send failed: ${message}`);
-      reply = { error: message };
+      out = { error: message };
     }
 
     // The session may have been deleted while we waited for the model.
     if (!history.getSession(sessionId)) {
       const t = Date.now();
-      return { sessionId, userMessage, assistantMessage: { id: `orphan-${t}`, role: 'assistant', createdAt: t, answerStyle, ...reply } };
+      return { sessionId, userMessage, assistantMessage: { id: `orphan-${t}`, role: 'assistant', createdAt: t, answerStyle, ...out } };
     }
-    const assistantMessage = history.appendMessage(sessionId, { role: 'assistant', answerStyle, ...reply });
+    const assistantMessage = history.appendMessage(sessionId, { role: 'assistant', answerStyle, ...out });
     return { sessionId, userMessage, assistantMessage };
   }
 

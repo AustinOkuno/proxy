@@ -138,6 +138,9 @@ const EVENTS = Object.freeze({
  * @property {string|null} sessionId   null = start a new session with this message.
  * @property {string} text             May be empty when images are present.
  * @property {ImageData[]} images      May be empty when text is present.
+ * @property {boolean} [retry]         true = ask the model again for this session's last user
+ *                                     message (dropping a failed reply after it); text and images
+ *                                     are ignored. The result's userMessage is that existing message.
  */
 
 /**
