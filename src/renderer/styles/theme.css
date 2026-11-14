@@ -4,17 +4,43 @@
  * Layout/components in app.css must use these variables, not raw colors.
  */
 :root {
+  /* Colors */
   --bg: #16171a;
   --surface: #1f2024;
   --surface-2: #2a2c31;
+  --surface-hover: #33363c;
   --border: #34363c;
   --text: #e6e6e6;
   --text-muted: #9a9ca3;
   --accent: #6aa0ff;
+  --accent-text: #0d1117;
   --danger: #ff6b6b;
+  --danger-bg: #3a1f22;
+  --focus-ring: #6aa0ff80;
+  --overlay-shadow: #00000080;
+
+  /* Bubbles */
+  --bubble-user-bg: #263248;
+  --bubble-user-text: var(--text);
+  --bubble-assistant-bg: var(--surface);
+  --bubble-assistant-text: var(--text);
+  --bubble-error-bg: var(--danger-bg);
+  --bubble-error-text: var(--danger);
+
+  /* Shape and spacing */
   --radius: 8px;
+  --radius-small: 4px;
   --gap: 8px;
+  --toolbar-height: 40px;
+  --sidebar-width: 220px;
+  --thumb-height: 120px;
+  --chip-size: 48px;
+  --bubble-max-width: 92%;
+
+  /* Type */
   --font: system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif;
   --font-mono: ui-monospace, "DejaVu Sans Mono", monospace;
   --font-size: 14px;
+  --font-size-small: 12px;
+  --font-size-heading: 16px;
 }
