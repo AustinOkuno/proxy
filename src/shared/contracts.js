@@ -41,7 +41,15 @@ const ANSWER_STYLES = Object.freeze({
 });
 
 const PROVIDERS = Object.freeze({
-  GEMINI: 'gemini',
+  GEMINI: 'gemini', // Google Gemini API, free key in .env
+  CLAUDE_PRO: 'claude-pro', // local Claude Code CLI (`claude -p`), logged in with a Claude Pro/Max account
+});
+
+/** Model used by the Claude (Pro) provider: a Claude Code CLI model alias. */
+const CLAUDE_MODELS = Object.freeze({
+  HAIKU: 'haiku', // fastest, default
+  SONNET: 'sonnet',
+  OPUS: 'opus', // smartest, slowest, uses Pro limits fastest
 });
 
 // ---------------------------------------------------------------------------
@@ -126,7 +134,8 @@ const EVENTS = Object.freeze({
  * @property {boolean} [stopped]                assistant: true when the user pressed Stop before the model answered
  *                                              (no answer/explanation/error). Retry can replace it.
  * @property {string} [answerStyle]             assistant: the ANSWER_STYLES value used for this reply.
- * @property {string} [model]                   assistant: the model that actually answered (after any fallback).
+ * @property {string} [model]                   assistant: the model that actually answered (after any fallback),
+ *                                              e.g. "gemini-3.8-flash" or "Claude (Pro) · claude-haiku-5-5".
  */
 
 /**
@@ -203,6 +212,7 @@ const EVENTS = Object.freeze({
  * @property {string} panelVisibility   PANEL_VISIBILITY value
  * @property {string} answerStyle       ANSWER_STYLES value
  * @property {string} provider          PROVIDERS value
+ * @property {string} claudeModel       CLAUDE_MODELS value (used when provider is claude-pro)
  * @property {PanelBounds|null} panelBounds   Last panel position/size; null = default placement.
  */
 
@@ -226,6 +236,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   panelVisibility: PANEL_VISIBILITY.ALWAYS,
   answerStyle: ANSWER_STYLES.BOTH,
   provider: PROVIDERS.GEMINI,
+  claudeModel: CLAUDE_MODELS.HAIKU,
   panelBounds: null,
 });
 
@@ -254,6 +265,7 @@ module.exports = {
   PANEL_VISIBILITY,
   ANSWER_STYLES,
   PROVIDERS,
+  CLAUDE_MODELS,
   INVOKE,
   EVENTS,
   SETTINGS_VERSION,

@@ -1,6 +1,6 @@
 # Proxy v0 spec
 
-Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, drag a box around something on screen (or grab the whole screen), and the image lands in a floating chat panel where Gemini answers. There is no server: everything runs on your machine, and the only network call is to the Gemini API.
+Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, drag a box around something on screen (or grab the whole screen), and the image lands in a floating chat panel where Gemini (or Claude, through your own Claude Pro login) answers. There is no server: everything runs on your machine, and the only network calls are to the model you picked.
 
 **Priority for v0: it works.** Plain, functional UI. Styling stays separable so it can be redesigned later.
 
@@ -44,9 +44,17 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 ### LLM
 - Gemini via the free API key in a local `.env` (`GEMINI_API_KEY`, gitignored; see `.env.example`). Model is `GEMINI_MODEL`, default `gemini-3.8-flash`; if the key can't use the configured model (404, or a zero free-tier quota), the adapter falls back to `gemini-3.5-flash-lite`, then `gemini-flash-latest`.
 - Behind a provider adapter so another model can be swapped in later.
+- **Claude (Pro)** (`provider: 'claude-pro'`): instead of an API key, Proxy runs the official Claude Code CLI on the user's machine (`claude -p`), logged in with their own Claude Pro/Max account (`claude auth login`). Replies count toward their normal Claude usage. Personal use only: Proxy only starts the `claude` command and never reads its login token or calls the API itself.
+  - One short-lived `claude` process per request, in a new empty temp folder, with every tool off (`--tools ""`), `--safe-mode` (no user CLAUDE.md, hooks, plugins or MCP servers), `--no-session-persistence`. It can only answer; it can't read or change files or run commands.
+  - Screenshots and the conversation go in on stdin as one stream-json user message (images as base64 blocks). Follow-ups resend the earlier turns, like Gemini. Only the newest 8 screenshots are attached.
+  - `--json-schema` returns `{ answer, explanation }`. The label is `Claude (Pro) · <model>`, e.g. `Claude (Pro) · claude-haiku-5-5`.
+  - Model: setting `claudeModel` (`haiku` default, fastest; `sonnet`; `opus`). A typical reply takes about 3 s with Haiku.
+  - Stop kills the process (SIGTERM, then SIGKILL after 2 s). A request is cut off after 2 minutes with an error that has Retry.
+  - The `claude` command is looked up in `CLAUDE_PATH` (from `.env`), then PATH, `~/.local/bin`, `~/.claude/local`, nvm and npm-global folders. `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `GEMINI_API_KEY` are removed from its environment so it always uses the Pro login.
+  - Clear errors with setup steps when the CLI isn't installed, isn't logged in, is too old, or the usage limit is reached.
 
 ### Out of scope for v0
-Tray features beyond Show panel / Quit, auto-start, packaging/installers, Wayland, multi-provider UI, streaming replies, Markdown rendering beyond plain text with line breaks (optional for Worker 3 if cheap).
+Tray features beyond Show panel / Quit, auto-start, packaging/installers, Wayland, streaming replies, Markdown rendering beyond plain text with line breaks (optional for Worker 3 if cheap).
 
 ---
 
@@ -141,7 +149,7 @@ Storage (Worker 2's choice, suggested): `dataDir/settings.json`, `dataDir/histor
 ### 4.2 Provider adapter (Worker 2) — `src/main/core/llm/`
 
 ```js
-const provider = createProvider('gemini', { env });   // llm/index.js
+const provider = createProvider('gemini', { env, settings });   // llm/index.js ('gemini' | 'claude-pro')
 await provider.generate({
   messages,      // Message[]: the whole session so far, including the new user message
   answerStyle,   // ANSWER_STYLES value
@@ -221,7 +229,7 @@ Channel names live in `src/shared/contracts.js` (`INVOKE`, `EVENTS`). The render
 | `proxy.window.getState()` | `WindowState` | W1 |
 | `proxy.clipboard.writeText(text)` | `{ ok }` | W1 |
 | `proxy.on(eventName, cb)` | unsubscribe fn | — |
-| `proxy.constants` | `{ EVENTS, SEND_MODES, PANEL_VISIBILITY, ANSWER_STYLES, PROVIDERS, DEFAULT_SETTINGS }` | — |
+| `proxy.constants` | `{ EVENTS, SEND_MODES, PANEL_VISIBILITY, ANSWER_STYLES, PROVIDERS, CLAUDE_MODELS, DEFAULT_SETTINGS }` | — |
 
 ### Events (main → renderer)
 
@@ -247,7 +255,7 @@ With `sendMode = wait`, step 2 instead adds the image as an attachment chip in t
 ## 6. Renderer (Worker 3)
 
 - Layout: session sidebar (collapsible, since the panel is narrow), message list, composer (textarea + attachments + Send), toolbar (Snip, Full screenshot, New chat, Full-screen toggle, Hide, Settings).
-- Settings view: hotkeys (text inputs with accelerator strings; validate non-empty or empty-to-disable), send mode, panel visibility, answer style. Saves through `proxy.settings.update`.
+- Settings view: AI provider (Gemini or Claude (Pro)) and, for Claude (Pro), the Claude model; hotkeys (text inputs with accelerator strings; validate non-empty or empty-to-disable), send mode, panel visibility, answer style. Saves through `proxy.settings.update`.
 - While the open chat is waiting on a reply, the Send button reads **Stop** and calls `conversation.stop()` (Esc too). A stopped reply renders as a small "Stopped" marker; the last one has Retry.
 - Assistant bubble: an "Answer" block and an "Explanation" block (only those with content), each with a Copy button using `proxy.clipboard.writeText`, and a small label with the model that answered (`Message.model`). Error messages render as an error bubble; the last one has a Retry button when the failed message was saved.
 - Enter sends, Shift+Enter is a newline. Paste of an image into the composer is a nice-to-have.
