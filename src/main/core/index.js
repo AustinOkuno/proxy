@@ -3,119 +3,74 @@
 /**
  * Core: settings store, history/session storage, LLM provider. OWNER: Worker 2.
  *
- * STUB from the scaffold: in-memory settings and history, and a placeholder
- * reply instead of a model call. Worker 2 replaces the internals; the exported
- * shape must keep matching SPEC.md section "Main-process module interfaces".
+ * Exported shape matches SPEC.md section 4.1. Internals live in:
+ *   settings.js  validated settings persisted to dataDir/settings.json
+ *   history.js   sessions in dataDir/history/<id>.json + index.json
+ *   chat.js      chat.send (user message -> provider -> assistant message)
+ *   llm/         provider adapters (Gemini)
  */
 
-const { INVOKE, EVENTS, defaultSettings } = require('../../shared/contracts');
+const { INVOKE, EVENTS } = require('../../shared/contracts');
+const { createSettingsStore } = require('./settings');
+const { createHistoryStore } = require('./history');
+const { createChat } = require('./chat');
+const { createProvider } = require('./llm');
 
 /**
- * @param {{ dataDir: string, env: NodeJS.ProcessEnv }} opts
+ * @param {{ dataDir: string, env: NodeJS.ProcessEnv, logger?: Pick<Console,'warn'>, providerFactory?: typeof createProvider }} opts
  */
-async function createCore({ dataDir, env }) { // eslint-disable-line no-unused-vars
-  let current = defaultSettings();
-  const listeners = new Set();
+async function createCore({ dataDir, env = {}, logger = console, providerFactory = createProvider }) {
+  if (!dataDir) throw new Error('createCore: dataDir is required');
 
-  const settings = {
-    get: () => JSON.parse(JSON.stringify(current)),
-    update(patch = {}) {
-      current = {
-        ...current,
-        ...patch,
-        hotkeys: { ...current.hotkeys, ...(patch.hotkeys || {}) },
-      };
-      const snapshot = settings.get();
-      for (const cb of listeners) cb(snapshot);
-      return snapshot;
-    },
-    onChange(cb) {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
+  const settings = createSettingsStore({ dataDir, logger });
+  const historyStore = createHistoryStore({ dataDir, logger });
+
+  const providers = new Map();
+  const getProvider = (name) => {
+    if (!providers.has(name)) providers.set(name, providerFactory(name, { env }));
+    return providers.get(name);
   };
 
-  const sessions = new Map();
-  let nextId = 1;
-  const newId = () => String(nextId++);
-  const summary = (s) => ({
-    id: s.id,
-    title: s.title,
-    createdAt: s.createdAt,
-    updatedAt: s.updatedAt,
-    messageCount: s.messages.length,
-  });
+  const chat = createChat({ history: historyStore, settings, getProvider, logger });
 
   const history = {
-    listSessions: () => [...sessions.values()].sort((a, b) => b.updatedAt - a.updatedAt).map(summary),
-    getSession: (id) => sessions.get(id) || null,
-    createSession() {
-      const now = Date.now();
-      const s = { id: newId(), title: 'New chat', createdAt: now, updatedAt: now, messages: [] };
-      sessions.set(s.id, s);
-      return s;
-    },
-    renameSession(id, title) {
-      const s = sessions.get(id);
-      s.title = title;
-      return summary(s);
-    },
-    deleteSession(id) {
-      sessions.delete(id);
-    },
-    appendMessage(id, message) {
-      const s = sessions.get(id);
-      s.messages.push(message);
-      s.updatedAt = Date.now();
-      return message;
-    },
+    listSessions: historyStore.listSessions,
+    getSession: historyStore.getSession,
+    createSession: historyStore.createSession,
+    renameSession: historyStore.renameSession,
+    deleteSession: historyStore.deleteSession,
+    appendMessage: historyStore.appendMessage,
   };
 
-  async function sendChat({ sessionId, text = '', images = [] }) {
-    const session = sessionId ? history.getSession(sessionId) : history.createSession();
-    const userMessage = history.appendMessage(session.id, {
-      id: newId(), role: 'user', createdAt: Date.now(), text, images,
-    });
-    const assistantMessage = history.appendMessage(session.id, {
-      id: newId(),
-      role: 'assistant',
-      createdAt: Date.now(),
-      answer: '(stub) Gemini is not wired up yet.',
-      explanation: '(stub) Worker 2 replaces this with a real model call.',
-      answerStyle: settings.get().answerStyle,
-    });
-    return { sessionId: session.id, userMessage, assistantMessage };
-  }
+  const idOf = (arg) => (arg && typeof arg === 'object' ? arg.id : arg);
 
   function registerIpc(ipcMain, { sendToPanel }) {
-    ipcMain.handle(INVOKE.CHAT_SEND, async (_e, req) => {
-      const result = await sendChat(req);
-      sendToPanel(EVENTS.HISTORY_CHANGED);
-      return result;
-    });
+    const send = (channel, payload) => {
+      try { sendToPanel(channel, payload); } catch (err) { logger.warn(`[core] sendToPanel failed: ${err.message}`); }
+    };
+
+    ipcMain.handle(INVOKE.CHAT_SEND, (_e, req) => chat.send(req));
     ipcMain.handle(INVOKE.HISTORY_LIST, () => history.listSessions());
-    ipcMain.handle(INVOKE.HISTORY_GET, (_e, { id }) => history.getSession(id));
-    ipcMain.handle(INVOKE.HISTORY_CREATE, () => {
-      const s = history.createSession();
-      sendToPanel(EVENTS.HISTORY_CHANGED);
-      return s;
-    });
-    ipcMain.handle(INVOKE.HISTORY_RENAME, (_e, { id, title }) => {
-      const s = history.renameSession(id, title);
-      sendToPanel(EVENTS.HISTORY_CHANGED);
-      return s;
-    });
-    ipcMain.handle(INVOKE.HISTORY_DELETE, (_e, { id }) => {
-      history.deleteSession(id);
-      sendToPanel(EVENTS.HISTORY_CHANGED);
+    ipcMain.handle(INVOKE.HISTORY_GET, (_e, arg) => history.getSession(idOf(arg)));
+    ipcMain.handle(INVOKE.HISTORY_CREATE, () => history.createSession());
+    ipcMain.handle(INVOKE.HISTORY_RENAME, (_e, arg) => history.renameSession(idOf(arg), arg && arg.title));
+    ipcMain.handle(INVOKE.HISTORY_DELETE, (_e, arg) => {
+      history.deleteSession(idOf(arg));
       return { ok: true };
     });
     ipcMain.handle(INVOKE.SETTINGS_GET, () => settings.get());
     ipcMain.handle(INVOKE.SETTINGS_UPDATE, (_e, patch) => settings.update(patch));
-    settings.onChange((s) => sendToPanel(EVENTS.SETTINGS_CHANGED, s));
+
+    settings.onChange((s) => send(EVENTS.SETTINGS_CHANGED, s));
+    historyStore.onChange(() => send(EVENTS.HISTORY_CHANGED));
   }
 
-  return { settings, history, chat: { send: sendChat }, registerIpc };
+  return {
+    settings: { get: settings.get, update: settings.update, onChange: settings.onChange },
+    history,
+    chat: { send: chat.send },
+    registerIpc,
+  };
 }
 
 module.exports = { createCore };
