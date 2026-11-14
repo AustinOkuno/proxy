@@ -118,6 +118,7 @@ const EVENTS = Object.freeze({
  * @property {string} [explanation]             assistant: the explanation section.
  * @property {string} [error]                   assistant: set instead of answer/explanation when the call failed.
  * @property {string} [answerStyle]             assistant: the ANSWER_STYLES value used for this reply.
+ * @property {string} [model]                   assistant: the model that actually answered (after any fallback).
  */
 
 /**
@@ -225,6 +226,7 @@ function defaultSettings() {
  * @typedef {Object} ProviderReply
  * @property {string} answer
  * @property {string} explanation
+ * @property {string} [model]   The model that actually answered.
  */
 
 module.exports = {

@@ -75,6 +75,7 @@ function createChat({ history, settings, getProvider, logger = console }) {
       const session = history.getSession(sessionId);
       const result = await provider.generate({ messages: session ? session.messages : [userMessage], answerStyle });
       out = { answer: String(result.answer || ''), explanation: String(result.explanation || '') };
+      if (typeof result.model === 'string' && result.model) out.model = result.model;
     } catch (err) {
       const message = (err && err.message) || 'The model call failed.';
       logger.warn(`[core] chat.send failed: ${message}`);

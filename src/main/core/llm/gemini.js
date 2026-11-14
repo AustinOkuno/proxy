@@ -139,7 +139,7 @@ function createGeminiProvider({
         } else if (m !== from) {
           sticky = { model: m, until: now() + STICKY_FALLBACK_MS };
         }
-        return response;
+        return { response, model: m };
       } catch (err) {
         lastErr = err;
         if (isModelUnavailable(err)) continue;
@@ -172,15 +172,16 @@ function createGeminiProvider({
       if (!client) client = clientFactory(apiKey);
 
       let response;
+      let usedModel = model;
       try {
-        response = await call({
+        ({ response, model: usedModel } = await call({
           contents,
           config: {
             systemInstruction: systemInstruction(answerStyle),
             responseMimeType: 'application/json',
             responseSchema: RESPONSE_SCHEMA,
           },
-        });
+        }));
       } catch (err) {
         throw new Error(friendlyError(err, apiKey));
       }
@@ -193,7 +194,7 @@ function createGeminiProvider({
           ? `Gemini returned no answer (${reason || finish}).`
           : 'Gemini returned an empty answer. Try again.');
       }
-      return applyStyle(parseReply(text), answerStyle);
+      return { ...applyStyle(parseReply(text), answerStyle), model: usedModel };
     },
   };
 }

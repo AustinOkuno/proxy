@@ -116,7 +116,7 @@ test('chat.send with retry replaces a failed reply without a new user message', 
   let fail = true;
   const { core, calls } = await makeCore(() => {
     if (fail) throw new Error('Gemini is busy');
-    return { answer: 'A', explanation: 'E' };
+    return { answer: 'A', explanation: 'E', model: 'gemini-x' };
   });
   const first = await core.chat.send({ sessionId: null, text: 'q', images: [] });
   assert.match(first.assistantMessage.error, /busy/);
@@ -124,6 +124,7 @@ test('chat.send with retry replaces a failed reply without a new user message', 
   fail = false;
   const r = await core.chat.send({ sessionId: first.sessionId, retry: true, text: '', images: [] });
   assert.equal(r.assistantMessage.answer, 'A');
+  assert.equal(r.assistantMessage.model, 'gemini-x', 'the reply records which model answered');
   assert.equal(r.userMessage.id, first.userMessage.id);
   const s = core.history.getSession(first.sessionId);
   assert.deepEqual(s.messages.map((m) => m.role), ['user', 'assistant']);

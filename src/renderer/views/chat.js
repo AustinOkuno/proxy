@@ -54,7 +54,7 @@ export function createMessageList(container, { copy, retry }) {
         return el(
           'div',
           { className: 'bubble assistant' },
-          replySections(message).map((s) =>
+          [...replySections(message).map((s) =>
             el('section', { className: `reply-section ${s.key}` }, [
               el('div', { className: 'reply-head' }, [
                 el('span', { className: 'reply-label', text: s.label }),
@@ -63,6 +63,7 @@ export function createMessageList(container, { copy, retry }) {
               el('div', { className: 'bubble-text', text: s.text }),
             ]),
           ),
+          message.model ? el('div', { className: 'reply-model', text: message.model, title: 'Model that answered' }) : null],
         );
       case 'error':
         return el('div', { className: 'bubble error', role: 'alert' }, [

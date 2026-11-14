@@ -229,7 +229,7 @@ With `sendMode = wait`, step 2 instead adds the image as an attachment chip in t
 
 - Layout: session sidebar (collapsible, since the panel is narrow), message list, composer (textarea + attachments + Send), toolbar (Snip, Full screenshot, New chat, Full-screen toggle, Hide, Settings).
 - Settings view: hotkeys (text inputs with accelerator strings; validate non-empty or empty-to-disable), send mode, panel visibility, answer style. Saves through `proxy.settings.update`.
-- Assistant bubble: an "Answer" block and an "Explanation" block (only those with content), each with a Copy button using `proxy.clipboard.writeText`. Error messages render as an error bubble; the last one has a Retry button when the failed message was saved.
+- Assistant bubble: an "Answer" block and an "Explanation" block (only those with content), each with a Copy button using `proxy.clipboard.writeText`, and a small label with the model that answered (`Message.model`). Error messages render as an error bubble; the last one has a Retry button when the failed message was saved.
 - Enter sends, Shift+Enter is a newline. Paste of an image into the composer is a nice-to-have.
 - **Styling is separable:** all colors, fonts, radii and spacing are CSS variables in `styles/theme.css`. Component CSS in `styles/app.css` uses only those variables. No inline styles in JS except for dynamic sizing.
 - The CSP in `index.html` allows `data:` images only; don't load remote resources.

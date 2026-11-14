@@ -75,7 +75,7 @@ test('gemini adapter sends model, schema and contents, and splits the reply', as
   const fake = fakeClient(() => ({ text: '{"answer":"Paris","explanation":"It is the capital."}' }));
   const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k', GEMINI_MODEL: 'gemini-test' }, clientFactory: fake.factory });
   const reply = await p.generate({ messages: [{ role: 'user', text: 'Capital of France?', images: [img] }], answerStyle: 'answer' });
-  assert.deepEqual(reply, { answer: 'Paris', explanation: '' });
+  assert.deepEqual(reply, { answer: 'Paris', explanation: '', model: 'gemini-test' });
   const { key, params } = fake.calls[0];
   assert.equal(key, 'k');
   assert.equal(params.model, 'gemini-test');
@@ -184,8 +184,8 @@ test('repeated 5xx falls back to the lite model and stays there for a while', as
   const models = fake.calls.map((c) => c.params.model);
   assert.deepEqual(models, [...Array(RETRY_DELAYS_MS.length + 1).fill(DEFAULT_MODEL), FALLBACK_MODELS[0]]);
   assert.equal(p.model, DEFAULT_MODEL, 'a temporary fallback does not change the configured model');
+  assert.equal((await ask(p)).model, FALLBACK_MODELS[0], 'the reply says which model answered');
 
-  await ask(p);
   assert.equal(fake.calls.at(-1).params.model, FALLBACK_MODELS[0], 'next message goes straight to the fallback');
   assert.equal(fake.calls.length, models.length + 1);
 
