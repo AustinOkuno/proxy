@@ -60,6 +60,11 @@ const INVOKE = Object.freeze({
   HISTORY_CREATE: 'history:create', // () -> Session  (empty session, the "New chat" button)
   HISTORY_RENAME: 'history:rename', // ({ id, title }) -> SessionSummary
   HISTORY_DELETE: 'history:delete', // ({ id }) -> { ok: true }
+  HISTORY_MOVE: 'history:move', // ({ id, folderId }) -> SessionSummary  (folderId null = top level)
+  FOLDER_LIST: 'folder:list', // () -> Folder[]  (display order)
+  FOLDER_CREATE: 'folder:create', // ({ name }) -> Folder
+  FOLDER_UPDATE: 'folder:update', // ({ id, name?, collapsed? }) -> Folder
+  FOLDER_DELETE: 'folder:delete', // ({ id }) -> { ok: true }  (its chats move to the top level)
   SETTINGS_GET: 'settings:get', // () -> Settings
   SETTINGS_UPDATE: 'settings:update', // (SettingsPatch) -> Settings  (validated, merged, saved)
 
@@ -85,7 +90,7 @@ const EVENTS = Object.freeze({
 
   // Owner: Worker 2 (core)
   SETTINGS_CHANGED: 'settings:changed', // (Settings)
-  HISTORY_CHANGED: 'history:changed', // ()  something in the session list changed; re-fetch HISTORY_LIST
+  HISTORY_CHANGED: 'history:changed', // ()  sessions or folders changed; re-fetch HISTORY_LIST and FOLDER_LIST
 });
 
 // ---------------------------------------------------------------------------
@@ -127,6 +132,16 @@ const EVENTS = Object.freeze({
  * @property {number} createdAt
  * @property {number} updatedAt
  * @property {number} messageCount
+ * @property {string|null} folderId   The Folder this chat is in; null = top level.
+ */
+
+/**
+ * A sidebar folder for grouping chats. Deleting one never deletes its chats.
+ * @typedef {Object} Folder
+ * @property {string} id
+ * @property {string} name
+ * @property {number} createdAt
+ * @property {boolean} collapsed   Remembered across restarts.
  */
 
 /**

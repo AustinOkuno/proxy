@@ -35,7 +35,8 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 
 ### History
 - Persistent sessions, like ChatGPT/Claude: a session list (newest first), **New chat**, open an old session and continue it, rename, delete.
-- Session titles are set automatically from the first user message (first ~40 chars, or "Screenshot" if there's no text). Rename overrides it.
+- Session titles are set automatically from the first user message (first ~40 chars, or "Screenshot" if there's no text). Rename overrides it. Rename by double-clicking a chat, pressing F2 on it, or its pencil button.
+- **Folders:** create (**+ Folder**), rename, collapse/expand and delete folders in the sidebar. Drag a chat onto a folder to file it, between folders to move it, or onto empty list space to take it out. Folders, membership and collapsed state persist across restarts. Deleting a folder never deletes chats: they move back to the top level. Folders are listed in creation order, above the unfiled chats; chats stay newest first inside each.
 
 ### LLM
 - Gemini via the free API key in a local `.env` (`GEMINI_API_KEY`, gitignored; see `.env.example`). Model is `GEMINI_MODEL`, default `gemini-3.8-flash`; if the key can't use the configured model (404, or a zero free-tier quota), the adapter falls back to `gemini-3.5-flash-lite`, then `gemini-flash-latest`.
@@ -118,6 +119,11 @@ core.history.createSession()                // -> Session
 core.history.renameSession(id, title)       // -> SessionSummary
 core.history.deleteSession(id)              // -> void
 core.history.appendMessage(id, message)     // -> Message
+core.history.moveSession(id, folderId)      // -> SessionSummary  (folderId null = top level; keeps updatedAt)
+core.history.listFolders()                  // -> Folder[] in display order
+core.history.createFolder(name)             // -> Folder  (empty name = "New folder")
+core.history.updateFolder(id, { name?, collapsed? })  // -> Folder
+core.history.deleteFolder(id)               // -> void; its chats move to the top level
 
 core.chat.send(ChatSendRequest)             // -> Promise<ChatSendResult>
 
@@ -125,7 +131,7 @@ core.registerIpc(ipcMain, { sendToPanel })  // registers every Worker 2 INVOKE c
                                             // emits SETTINGS_CHANGED and HISTORY_CHANGED via sendToPanel
 ```
 
-Storage (Worker 2's choice, suggested): `dataDir/settings.json`, `dataDir/history/<sessionId>.json` (one file per session, images inline as base64), plus `dataDir/history/index.json` for summaries. Write atomically (write temp file, then rename). Corrupt files must not crash startup: fall back to defaults/empty and log.
+Storage (Worker 2's choice, suggested): `dataDir/settings.json`, `dataDir/history/<sessionId>.json` (one file per session, images inline as base64), plus `dataDir/history/index.json` for summaries and `dataDir/history/folders.json` for folders (each session file also stores its `folderId`, so an index rebuild keeps folder membership). Write atomically (write temp file, then rename). Corrupt files must not crash startup: fall back to defaults/empty and log.
 
 ### 4.2 Provider adapter (Worker 2) — `src/main/core/llm/`
 
@@ -192,6 +198,11 @@ Channel names live in `src/shared/contracts.js` (`INVOKE`, `EVENTS`). The render
 | `proxy.history.create()` | `Session` | W2 |
 | `proxy.history.rename(id, title)` | `SessionSummary` | W2 |
 | `proxy.history.delete(id)` | `{ ok }` | W2 |
+| `proxy.history.move(id, folderId)` | `SessionSummary` (`folderId` null = top level) | W2 |
+| `proxy.folders.list()` | `Folder[]` | W2 |
+| `proxy.folders.create(name)` | `Folder` | W2 |
+| `proxy.folders.update(id, { name?, collapsed? })` | `Folder` | W2 |
+| `proxy.folders.delete(id)` | `{ ok }` (chats move to the top level) | W2 |
 | `proxy.settings.get()` | `Settings` | W2 |
 | `proxy.settings.update(patch)` | `Settings` | W2 |
 | `proxy.capture.region()` | `{ ok }`, image arrives as `capture:ready` | W1 |
@@ -212,7 +223,7 @@ Channel names live in `src/shared/contracts.js` (`INVOKE`, `EVENTS`). The render
 | `capture:cancelled` | none | W1 |
 | `window:state` | `WindowState` | W1 |
 | `settings:changed` | `Settings` | W2 |
-| `history:changed` | none (re-fetch the list) | W2 |
+| `history:changed` | none (re-fetch the chat list and folders) | W2 |
 
 ### Flow: snip with `sendMode = instant`
 1. User presses `Super+Shift+S` → W1 overlay → crop → `capture:ready` to renderer.
@@ -232,6 +243,7 @@ With `sendMode = wait`, step 2 instead adds the image as an attachment chip in t
 - Enter sends, Shift+Enter is a newline. Paste of an image into the composer is a nice-to-have.
 - **Styling is separable:** all colors, fonts, radii and spacing are CSS variables in `styles/theme.css`. Component CSS in `styles/app.css` uses only those variables. No inline styles in JS except for dynamic sizing.
 - The CSP in `index.html` allows `data:` images only; don't load remote resources.
+- Sidebar folders use HTML5 drag and drop inside the panel; the grouping logic lives in `lib/folders.js` so it is unit-tested.
 
 ---
 

@@ -40,6 +40,11 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
     renameSession: historyStore.renameSession,
     deleteSession: historyStore.deleteSession,
     appendMessage: historyStore.appendMessage,
+    moveSession: historyStore.moveSession,
+    listFolders: historyStore.listFolders,
+    createFolder: historyStore.createFolder,
+    updateFolder: historyStore.updateFolder,
+    deleteFolder: historyStore.deleteFolder,
   };
 
   const idOf = (arg) => (arg && typeof arg === 'object' ? arg.id : arg);
@@ -56,6 +61,17 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
     ipcMain.handle(INVOKE.HISTORY_RENAME, (_e, arg) => history.renameSession(idOf(arg), arg && arg.title));
     ipcMain.handle(INVOKE.HISTORY_DELETE, (_e, arg) => {
       history.deleteSession(idOf(arg));
+      return { ok: true };
+    });
+    ipcMain.handle(INVOKE.HISTORY_MOVE, (_e, arg) => history.moveSession(idOf(arg), arg && arg.folderId));
+    ipcMain.handle(INVOKE.FOLDER_LIST, () => history.listFolders());
+    ipcMain.handle(INVOKE.FOLDER_CREATE, (_e, arg) => history.createFolder(arg && arg.name));
+    ipcMain.handle(INVOKE.FOLDER_UPDATE, (_e, arg) => history.updateFolder(idOf(arg), {
+      ...(arg && 'name' in arg ? { name: arg.name } : {}),
+      ...(arg && 'collapsed' in arg ? { collapsed: arg.collapsed } : {}),
+    }));
+    ipcMain.handle(INVOKE.FOLDER_DELETE, (_e, arg) => {
+      history.deleteFolder(idOf(arg));
       return { ok: true };
     });
     ipcMain.handle(INVOKE.SETTINGS_GET, () => settings.get());

@@ -3,7 +3,9 @@
 /**
  * History store: chat sessions persisted as one JSON file per session in
  * dataDir/history/<id>.json, plus dataDir/history/index.json with summaries.
- * Images are stored inline as base64. Electron-free.
+ * Images are stored inline as base64. Folders (and which chat is in which
+ * folder) live in dataDir/history/folders.json; a session's own file also
+ * records its folderId so a rebuilt index keeps it. Electron-free.
  *
  * All methods are synchronous and keep an in-memory copy; every change is
  * written to disk atomically before the method returns.
@@ -18,6 +20,8 @@ const DEFAULT_TITLE = 'New chat';
 const SCREENSHOT_TITLE = 'Screenshot';
 const TITLE_MAX = 40;
 const RENAME_MAX = 200;
+const FOLDER_DEFAULT_NAME = 'New folder';
+const FOLDER_NAME_MAX = 80;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 const newId = () => crypto.randomUUID();
@@ -40,8 +44,11 @@ function summaryOf(s) {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     messageCount: s.messages.length,
+    folderId: typeof s.folderId === 'string' ? s.folderId : null,
   };
 }
+
+const cleanName = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
 
 /** Public Session shape (drops internal fields). */
 function publicSession(s) {
@@ -60,12 +67,16 @@ function isValidStoredSession(s) {
 function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
   const dir = path.join(dataDir, 'history');
   const indexFile = path.join(dir, 'index.json');
+  const foldersFile = path.join(dir, 'folders.json');
+  const RESERVED_FILES = new Set(['index.json', 'folders.json']);
   const sessionFile = (id) => path.join(dir, `${id}.json`);
 
   /** id -> stored session (with internal `titleLocked`). Loaded lazily from disk. */
   const cache = new Map();
   /** id -> SessionSummary */
   const summaries = new Map();
+  /** id -> Folder, in display (creation) order */
+  const folders = new Map();
   const listeners = new Set();
 
   // A monotonic clock so ordering is stable even within the same millisecond.
@@ -96,7 +107,7 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
     summaries.clear();
     let files = [];
     try {
-      files = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && f !== 'index.json');
+      files = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !RESERVED_FILES.has(f));
     } catch (err) {
       if (err.code !== 'ENOENT') logger.warn(`[core] history: cannot read ${dir}: ${err.message}`);
     }
@@ -128,6 +139,7 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
           createdAt: Number(s.createdAt) || 0,
           updatedAt: Number(s.updatedAt) || 0,
           messageCount: Number(s.messageCount) || 0,
+          folderId: typeof s.folderId === 'string' ? s.folderId : null,
         });
       }
     }
@@ -140,6 +152,42 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
   }
   for (const s of summaries.values()) lastTime = Math.max(lastTime, s.updatedAt);
 
+  // ---- folders ----
+  function writeFolders() {
+    try {
+      writeJsonAtomic(foldersFile, { version: 1, folders: [...folders.values()] });
+    } catch (err) {
+      logger.warn(`[core] history: could not save folders: ${err.message}`);
+    }
+  }
+
+  const fr = readJson(foldersFile);
+  if (fr.ok && fr.value && Array.isArray(fr.value.folders)) {
+    for (const f of fr.value.folders) {
+      if (f && typeof f.id === 'string' && ID_RE.test(f.id) && !folders.has(f.id)) {
+        folders.set(f.id, {
+          id: f.id,
+          name: cleanName(f.name, FOLDER_NAME_MAX) || FOLDER_DEFAULT_NAME,
+          createdAt: Number(f.createdAt) || 0,
+          collapsed: f.collapsed === true,
+        });
+      }
+    }
+  } else if (!fr.missing) {
+    logger.warn('[core] history: folders file unreadable, starting with no folders');
+    quarantine(foldersFile);
+  }
+  // A chat whose folder is gone shows at the top level (its file is fixed on next save).
+  for (const s of summaries.values()) {
+    if (s.folderId && !folders.has(s.folderId)) s.folderId = null;
+  }
+
+  function requireFolder(id) {
+    const f = typeof id === 'string' ? folders.get(id) : null;
+    if (!f) throw new Error(`Folder not found: ${id}`);
+    return f;
+  }
+
   function getStored(id) {
     if (typeof id !== 'string' || !ID_RE.test(id) || !summaries.has(id)) return null;
     if (cache.has(id)) return cache.get(id);
@@ -149,11 +197,13 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
       writeIndex();
       return null;
     }
+    if (s.folderId != null && !folders.has(s.folderId)) s.folderId = null;
     cache.set(id, s);
     return s;
   }
 
   function save(s) {
+    if (s.folderId != null && !folders.has(s.folderId)) s.folderId = null;
     writeJsonAtomic(sessionFile(s.id), s);
     cache.set(s.id, s);
     summaries.set(s.id, summaryOf(s));
@@ -182,7 +232,7 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
 
     createSession() {
       const t = tick();
-      const s = { id: newId(), title: DEFAULT_TITLE, titleLocked: false, createdAt: t, updatedAt: t, messages: [] };
+      const s = { id: newId(), title: DEFAULT_TITLE, titleLocked: false, folderId: null, createdAt: t, updatedAt: t, messages: [] };
       save(s);
       return publicSession(s);
     },
@@ -216,6 +266,74 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
         writeIndex();
         emit();
       }
+    },
+
+    /**
+     * Put a chat in a folder, or back at the top level with folderId null.
+     * Does not change updatedAt, so the chat keeps its place in the list.
+     */
+    moveSession(id, folderId) {
+      const s = requireSession(id);
+      const target = folderId == null || folderId === '' ? null : requireFolder(folderId).id;
+      if ((s.folderId || null) !== target) {
+        s.folderId = target;
+        save(s);
+      }
+      return summaryOf(s);
+    },
+
+    /** @returns {import('../../shared/contracts').Folder[]} in display order */
+    listFolders() {
+      return [...folders.values()].map((f) => ({ ...f }));
+    },
+
+    createFolder(name) {
+      const f = {
+        id: newId(),
+        name: cleanName(name, FOLDER_NAME_MAX) || FOLDER_DEFAULT_NAME,
+        createdAt: tick(),
+        collapsed: false,
+      };
+      folders.set(f.id, f);
+      writeFolders();
+      emit();
+      return { ...f };
+    },
+
+    /** patch: { name?, collapsed? }. An empty name is ignored. */
+    updateFolder(id, patch = {}) {
+      const f = requireFolder(id);
+      const p = patch && typeof patch === 'object' ? patch : {};
+      if ('name' in p) {
+        const name = cleanName(p.name, FOLDER_NAME_MAX);
+        if (name) f.name = name;
+      }
+      if ('collapsed' in p) f.collapsed = p.collapsed === true;
+      writeFolders();
+      emit();
+      return { ...f };
+    },
+
+    /** Delete a folder. Its chats are kept and move back to the top level. */
+    deleteFolder(id) {
+      if (typeof id !== 'string' || !folders.has(id)) return;
+      folders.delete(id);
+      writeFolders();
+      for (const sum of summaries.values()) {
+        if (sum.folderId !== id) continue;
+        const s = getStored(sum.id);
+        if (s) {
+          s.folderId = null;
+          try {
+            writeJsonAtomic(sessionFile(s.id), s);
+          } catch (err) {
+            logger.warn(`[core] history: could not update ${s.id}: ${err.message}`);
+          }
+        }
+        sum.folderId = null;
+      }
+      writeIndex();
+      emit();
     },
 
     /**

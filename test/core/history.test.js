@@ -116,3 +116,84 @@ test('autoTitle', () => {
   assert.equal(autoTitle({ text: '', images: [img] }), 'Screenshot');
   assert.equal(autoTitle({ text: 'x'.repeat(100) }).length, 41);
 });
+
+test('folders: create, rename, collapse, move chats in and out, persist', () => {
+  const dir = tmpDir();
+  const h = store(dir);
+  const a = h.createSession();
+  const b = h.createSession();
+  assert.equal(h.listSessions()[0].folderId, null);
+
+  const f = h.createFolder('  Work   stuff ');
+  assert.equal(f.name, 'Work stuff');
+  assert.equal(f.collapsed, false);
+  assert.equal(h.createFolder('').name, 'New folder');
+
+  const moved = h.moveSession(a.id, f.id);
+  assert.equal(moved.folderId, f.id);
+  assert.deepEqual(h.listSessions().map((s) => s.id), [b.id, a.id], 'moving does not reorder by time');
+
+  assert.equal(h.updateFolder(f.id, { name: 'Work' }).name, 'Work');
+  assert.equal(h.updateFolder(f.id, { name: '   ' }).name, 'Work', 'empty rename is ignored');
+  assert.equal(h.updateFolder(f.id, { collapsed: true }).collapsed, true);
+
+  const h2 = store(dir);
+  assert.deepEqual(h2.listFolders().map((x) => [x.name, x.collapsed]), [['Work', true], ['New folder', false]]);
+  assert.equal(h2.listSessions().find((s) => s.id === a.id).folderId, f.id);
+
+  h2.moveSession(a.id, null);
+  assert.equal(h2.getSession(a.id).folderId, null);
+  assert.throws(() => h2.moveSession(a.id, 'nope'), /Folder not found/);
+  assert.throws(() => h2.updateFolder('nope', { name: 'x' }), /Folder not found/);
+});
+
+test('deleting a folder keeps its chats at the top level', () => {
+  const dir = tmpDir();
+  const h = store(dir);
+  const a = h.createSession();
+  h.appendMessage(a.id, { role: 'user', text: 'keep me' });
+  const f = h.createFolder('Temp');
+  h.moveSession(a.id, f.id);
+  h.deleteFolder(f.id);
+  assert.deepEqual(h.listFolders(), []);
+  assert.equal(h.listSessions()[0].folderId, null);
+  assert.equal(h.getSession(a.id).messages.length, 1);
+  const h2 = store(dir);
+  assert.equal(h2.listSessions()[0].folderId, null);
+  assert.equal(h2.getSession(a.id).folderId, null);
+});
+
+test('folder membership survives an index rebuild; folders.json is not read as a chat', () => {
+  const dir = tmpDir();
+  const h = store(dir);
+  const a = h.createSession();
+  const f = h.createFolder('Kept');
+  h.moveSession(a.id, f.id);
+  fs.writeFileSync(path.join(dir, 'history', 'index.json'), '{broken');
+  const h2 = store(dir);
+  assert.equal(h2.listSessions().length, 1);
+  assert.equal(h2.listSessions()[0].folderId, f.id);
+  assert.equal(h2.listFolders().length, 1);
+});
+
+test('corrupt folders file starts with no folders and chats show at the top level', () => {
+  const dir = tmpDir();
+  const h = store(dir);
+  const a = h.createSession();
+  h.moveSession(a.id, h.createFolder('X').id);
+  fs.writeFileSync(path.join(dir, 'history', 'folders.json'), 'nope');
+  const h2 = store(dir);
+  assert.deepEqual(h2.listFolders(), []);
+  assert.equal(h2.listSessions()[0].folderId, null);
+  assert.equal(h2.getSession(a.id).folderId, null);
+});
+
+test('folder changes fire onChange', () => {
+  const h = store();
+  let n = 0;
+  h.onChange(() => { n += 1; });
+  const f = h.createFolder('A');
+  h.updateFolder(f.id, { collapsed: true });
+  h.deleteFolder(f.id);
+  assert.equal(n, 3);
+});

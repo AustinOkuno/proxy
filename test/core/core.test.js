@@ -91,7 +91,8 @@ test('registerIpc handles every Worker 2 channel and emits events', async () => 
   core.registerIpc(ipcMain, { sendToPanel: (ch, p) => sent.push([ch, p]) });
 
   for (const ch of ['CHAT_SEND', 'HISTORY_LIST', 'HISTORY_GET', 'HISTORY_CREATE', 'HISTORY_RENAME',
-    'HISTORY_DELETE', 'SETTINGS_GET', 'SETTINGS_UPDATE']) {
+    'HISTORY_DELETE', 'HISTORY_MOVE', 'FOLDER_LIST', 'FOLDER_CREATE', 'FOLDER_UPDATE', 'FOLDER_DELETE',
+    'SETTINGS_GET', 'SETTINGS_UPDATE']) {
     assert.equal(typeof handlers[INVOKE[ch]], 'function', ch);
   }
 
@@ -102,6 +103,13 @@ test('registerIpc handles every Worker 2 channel and emits events', async () => 
   assert.equal((await handlers[INVOKE.HISTORY_GET]({}, { id: s.id })).messages.length, 2);
   assert.equal((await handlers[INVOKE.HISTORY_RENAME]({}, { id: s.id, title: 'T' })).title, 'T');
   assert.equal((await handlers[INVOKE.HISTORY_LIST]({}))[0].title, 'T');
+  const f = await handlers[INVOKE.FOLDER_CREATE]({}, { name: 'Work' });
+  assert.equal((await handlers[INVOKE.HISTORY_MOVE]({}, { id: s.id, folderId: f.id })).folderId, f.id);
+  assert.equal((await handlers[INVOKE.FOLDER_UPDATE]({}, { id: f.id, collapsed: true })).collapsed, true);
+  assert.equal((await handlers[INVOKE.FOLDER_UPDATE]({}, { id: f.id, name: 'Jobs' })).name, 'Jobs');
+  assert.equal((await handlers[INVOKE.FOLDER_LIST]({}))[0].name, 'Jobs');
+  assert.deepEqual(await handlers[INVOKE.FOLDER_DELETE]({}, { id: f.id }), { ok: true });
+  assert.equal((await handlers[INVOKE.HISTORY_LIST]({}))[0].folderId, null);
   assert.deepEqual(await handlers[INVOKE.HISTORY_DELETE]({}, { id: s.id }), { ok: true });
   assert.equal((await handlers[INVOKE.HISTORY_LIST]({})).length, 0);
 

@@ -31,7 +31,10 @@
       <aside class="sidebar" id="sidebar" aria-label="Chats">
         <div class="sidebar-head">
           <span class="sidebar-title">Chats</span>
-          <button type="button" class="btn small" id="btn-new-side">New chat</button>
+          <span class="sidebar-actions">
+            <button type="button" class="btn small" id="btn-new-folder" title="New folder. Drag chats onto it to file them.">+ Folder</button>
+            <button type="button" class="btn small" id="btn-new-side">New chat</button>
+          </span>
         </div>
         <ul class="session-list" id="session-list"></ul>
         <p class="muted empty-note" id="session-empty" hidden>No chats yet.</p>
