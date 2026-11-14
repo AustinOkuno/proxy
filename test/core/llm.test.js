@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildContents, parseReply, applyStyle, systemInstruction } = require('../../src/main/core/llm/prompt');
-const { createGeminiProvider, friendlyError, MISSING_KEY_MESSAGE } = require('../../src/main/core/llm/gemini');
+const { createGeminiProvider, friendlyError, MISSING_KEY_MESSAGE, DEFAULT_MODEL, FALLBACK_MODELS } = require('../../src/main/core/llm/gemini');
 const { createProvider } = require('../../src/main/core/llm');
 
 const img = { mimeType: 'image/png', dataBase64: 'AAAA' };
@@ -84,8 +84,40 @@ test('gemini adapter sends model, schema and contents, and splits the reply', as
   assert.equal(params.contents[0].role, 'user');
 });
 
-test('default model is gemini-2.5-flash', () => {
-  assert.equal(createGeminiProvider({ env: { GEMINI_API_KEY: 'k' } }).model, 'gemini-2.5-flash');
+test('default model is a current Flash model, not the restricted 2.5 line', () => {
+  const { model } = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' } });
+  assert.equal(model, DEFAULT_MODEL);
+  assert.doesNotMatch(model, /^gemini-2\./);
+});
+
+test('a model the key cannot use falls back to the next model and remembers it', async () => {
+  const fake = fakeClient((params) => {
+    if (params.model === 'gemini-2.5-flash') { const e = new Error('models/gemini-2.5-flash is not found'); e.status = 404; throw e; }
+    if (params.model === DEFAULT_MODEL) { const e = new Error('Quota exceeded for metric: free_tier_requests, limit: 0'); e.status = 429; throw e; }
+    return { text: '{"answer":"ok","explanation":""}' };
+  });
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k', GEMINI_MODEL: 'gemini-2.5-flash' }, clientFactory: fake.factory });
+  const reply = await p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both' });
+  assert.equal(reply.answer, 'ok');
+  assert.deepEqual(fake.calls.map((c) => c.params.model), ['gemini-2.5-flash', DEFAULT_MODEL, FALLBACK_MODELS[0]]);
+  assert.equal(p.model, FALLBACK_MODELS[0]);
+  await p.generate({ messages: [{ role: 'user', text: 'y' }], answerStyle: 'both' });
+  assert.equal(fake.calls[3].params.model, FALLBACK_MODELS[0]);
+});
+
+test('when no model is available the 404 message names a model to use', async () => {
+  const fake = fakeClient(() => { const e = new Error('not found'); e.status = 404; throw e; });
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' }, clientFactory: fake.factory });
+  await assert.rejects(p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both' }),
+    new RegExp(`GEMINI_MODEL=${DEFAULT_MODEL}`));
+  assert.equal(fake.calls.length, 1 + FALLBACK_MODELS.length);
+});
+
+test('an ordinary rate limit does not switch models', async () => {
+  const fake = fakeClient(() => { const e = new Error('Resource exhausted, retry in 20s'); e.status = 429; throw e; });
+  const p = createGeminiProvider({ env: { GEMINI_API_KEY: 'k' }, clientFactory: fake.factory });
+  await assert.rejects(p.generate({ messages: [{ role: 'user', text: 'x' }], answerStyle: 'both' }), /rate limit/);
+  assert.equal(fake.calls.length, 1);
 });
 
 test('SDK errors become readable messages without the key', async () => {

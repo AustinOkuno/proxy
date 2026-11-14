@@ -20,6 +20,7 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 
 ### Panel
 - Floating, movable, resizable, always on top. Remembers its position and size.
+- The window's close button (X) hides the panel; the app keeps running for hotkeys. Quit from the tray icon menu (**Quit Proxy**) or with Ctrl+Q.
 - A button toggles full-screen and back.
 - **Visibility** (setting):
   - `always` (default): panel is always shown.
@@ -37,11 +38,11 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 - Session titles are set automatically from the first user message (first ~40 chars, or "Screenshot" if there's no text). Rename overrides it.
 
 ### LLM
-- Gemini via the free API key in a local `.env` (`GEMINI_API_KEY`, gitignored; see `.env.example`). Model is `GEMINI_MODEL`, default `gemini-2.5-flash`.
+- Gemini via the free API key in a local `.env` (`GEMINI_API_KEY`, gitignored; see `.env.example`). Model is `GEMINI_MODEL`, default `gemini-3.8-flash`; if the key can't use the configured model (404, or a zero free-tier quota), the adapter falls back to `gemini-3.5-flash-lite`, then `gemini-flash-latest`.
 - Behind a provider adapter so another model can be swapped in later.
 
 ### Out of scope for v0
-Tray icon, auto-start, packaging/installers, Wayland, multi-provider UI, streaming replies, Markdown rendering beyond plain text with line breaks (optional for Worker 3 if cheap).
+Tray features beyond Show panel / Quit, auto-start, packaging/installers, Wayland, multi-provider UI, streaming replies, Markdown rendering beyond plain text with line breaks (optional for Worker 3 if cheap).
 
 ---
 
