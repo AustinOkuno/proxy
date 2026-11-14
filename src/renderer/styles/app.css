@@ -1,0 +1,11 @@
+/* OWNER: Worker 3. Layout and components. Use the tokens from theme.css. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--font-size)/1.5 var(--font);
+}
+#app { padding: calc(var(--gap) * 2); }
+h1 { font-size: 16px; margin: 0 0 var(--gap); }
+#status { color: var(--text-muted); }

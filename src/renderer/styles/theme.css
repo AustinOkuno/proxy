@@ -1,0 +1,20 @@
+/*
+ * OWNER: Worker 3.
+ * Design tokens only. A redesign should mostly mean editing this file.
+ * Layout/components in app.css must use these variables, not raw colors.
+ */
+:root {
+  --bg: #16171a;
+  --surface: #1f2024;
+  --surface-2: #2a2c31;
+  --border: #34363c;
+  --text: #e6e6e6;
+  --text-muted: #9a9ca3;
+  --accent: #6aa0ff;
+  --danger: #ff6b6b;
+  --radius: 8px;
+  --gap: 8px;
+  --font: system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif;
+  --font-mono: ui-monospace, "DejaVu Sans Mono", monospace;
+  --font-size: 14px;
+}

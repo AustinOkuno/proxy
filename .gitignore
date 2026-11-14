@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+out/
+*.log
+.DS_Store
+# Local app data if you point PROXY_DATA_DIR inside the repo
+.proxy-data/
