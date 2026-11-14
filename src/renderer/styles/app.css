@@ -31,6 +31,7 @@ code { font-family: var(--font-mono); font-size: var(--font-size-small); }
 }
 .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .btn.danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+.btn.primary.stop { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
 .btn.icon { min-width: 30px; text-align: center; padding-left: calc(var(--gap) / 2); padding-right: calc(var(--gap) / 2); }
 .btn.small { font-size: var(--font-size-small); padding: 0 calc(var(--gap) * 0.75); }
 .btn.active { border-color: var(--accent); color: var(--accent); }
@@ -186,6 +187,8 @@ code { font-family: var(--font-mono); font-size: var(--font-size-small); }
 .bubble.assistant { background: var(--bubble-assistant-bg); color: var(--bubble-assistant-text); }
 .bubble.error { background: var(--bubble-error-bg); color: var(--bubble-error-text); border-color: var(--danger); }
 .bubble.pending { color: var(--text-muted); font-style: italic; }
+.bubble.stopped { color: var(--text-muted); border-style: dashed; padding: calc(var(--gap) / 2) var(--gap); }
+.stopped-label { font-size: var(--font-size-small); }
 .bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .bubble-images { display: flex; flex-wrap: wrap; gap: calc(var(--gap) / 2); margin-bottom: calc(var(--gap) / 2); }
 .bubble-images:last-child { margin-bottom: 0; }

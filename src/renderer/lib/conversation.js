@@ -14,7 +14,10 @@ export function canSend(draft) {
 
 /**
  * @param {{
- *   api: { chat: { send(req: object): Promise<any> }, history: { get(id: string): Promise<any> } },
+ *   api: {
+ *     chat: { send(req: object): Promise<any>, cancel?(target: object): Promise<any> },
+ *     history: { get(id: string): Promise<any> },
+ *   },
  *   onChange?: () => void,
  *   now?: () => number,
  * }} opts
@@ -25,6 +28,8 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
   let current = blank();
   let openToken = 0;
   let localSeq = 0;
+  // Unique per panel load, so request ids never repeat across reloads.
+  const runId = Math.random().toString(36).slice(2, 8);
   // Sends go one at a time so follow-ups in a brand-new chat land in the session
   // the first send created, and the model sees replies in order.
   let queue = Promise.resolve();
@@ -38,6 +43,16 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
     return `local-${localSeq}`;
   }
 
+  function requestId() {
+    localSeq += 1;
+    return `r-${runId}-${localSeq}`;
+  }
+
+  /** Placeholder shown after a send that was stopped before it reached the app. */
+  function localStopped() {
+    return { id: localId(), role: 'assistant', createdAt: now(), stopped: true, local: true };
+  }
+
   return {
     /** Session id of the open chat, or null for an unsaved new chat. */
     get sessionId() {
@@ -48,9 +63,9 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
       return current.loading;
     },
 
-    /** True while any send for the open chat is waiting on the model. */
+    /** True while any send for the open chat is waiting on the model (and hasn't been stopped). */
     get busy() {
-      return current.pending.length > 0;
+      return current.pending.some((p) => !p.stopped);
     },
 
     /**
@@ -61,7 +76,13 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
       const out = [...current.messages];
       for (const p of current.pending) {
         if (p.user) out.push(p.user);
-        out.push({ id: `${p.id || p.user.id}-reply`, role: 'assistant', pending: true, createdAt: p.createdAt || p.user.createdAt });
+        out.push({
+          id: `${p.id || p.user.id}-reply`,
+          role: 'assistant',
+          pending: true,
+          stopping: !!p.stopped,
+          createdAt: p.createdAt || p.user.createdAt,
+        });
       }
       return out;
     },
@@ -113,14 +134,20 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
       const text = String(draft.text || '').trim();
       const images = [...(draft.images || [])];
       const user = { id: localId(), role: 'user', createdAt: now(), text, images };
-      const entry = { user };
+      const entry = { user, requestId: requestId(), started: false, stopped: false };
       convo.pending.push(entry);
       onChange();
 
       const job = queue.then(async () => {
         let result = null;
         try {
-          result = await api.chat.send({ sessionId: convo.id, text, images });
+          if (entry.stopped) {
+            // Stopped while still queued behind another send: never sent.
+            convo.messages.push(user, localStopped());
+            return null;
+          }
+          entry.started = true;
+          result = await api.chat.send({ sessionId: convo.id, text, images, requestId: entry.requestId });
           if (!result || !result.userMessage || !result.assistantMessage) {
             throw new Error('The app returned an empty reply.');
           }
@@ -148,10 +175,32 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
       return job;
     },
 
-    /** True when the open chat ends in a failed reply that the app can ask the model for again. */
+    /** True when the open chat ends in a failed or stopped reply that the app can ask the model for again. */
     canRetry() {
       const last = current.messages[current.messages.length - 1];
-      return !!current.id && !current.pending.length && !!last && last.role === 'assistant' && !!last.error && !last.local;
+      return !!current.id && !current.pending.length && !!last && last.role === 'assistant'
+        && (!!last.error || !!last.stopped) && !last.local;
+    },
+
+    /**
+     * Stop everything the open chat is waiting on: the request in flight is
+     * cancelled in the app (which also cancels its automatic retries), and sends
+     * queued behind it are dropped. Each shows a "Stopped" marker. Never rejects.
+     * @returns {Promise<void>}
+     */
+    stop() {
+      const convo = current;
+      const live = convo.pending.filter((p) => !p.stopped);
+      if (!live.length) return Promise.resolve();
+      for (const p of live) p.stopped = true;
+      onChange();
+      // Queued sends see the flag and never start; only the one in flight
+      // needs the app to cancel it.
+      const cancel = api.chat && api.chat.cancel;
+      if (typeof cancel !== 'function') return Promise.resolve();
+      return Promise.all(live.filter((p) => p.started).map((p) => Promise.resolve()
+        .then(() => cancel({ requestId: p.requestId }))
+        .catch(() => {}))).then(() => {});
     },
 
     /**
@@ -162,19 +211,26 @@ export function createConversation({ api, onChange = () => {}, now = () => Date.
       if (!this.canRetry()) return Promise.resolve(null);
       const convo = current;
       const failed = convo.messages.pop();
-      const entry = { id: localId(), createdAt: now() };
+      const entry = { id: localId(), createdAt: now(), requestId: requestId(), started: false, stopped: false };
       convo.pending.push(entry);
       onChange();
 
       const job = queue.then(async () => {
         let result = null;
         try {
-          result = await api.chat.send({ sessionId: convo.id, retry: true, text: '', images: [] });
+          if (entry.stopped) {
+            convo.messages.push(failed);
+            return null;
+          }
+          entry.started = true;
+          result = await api.chat.send({ sessionId: convo.id, retry: true, text: '', images: [], requestId: entry.requestId });
           if (!result || !result.assistantMessage) throw new Error('The app returned an empty reply.');
           convo.messages.push(result.assistantMessage);
         } catch (err) {
           const message = (err && err.message) || String(err);
-          convo.messages.push({ ...failed, error: `${failed.error}\n\nRetry failed: ${message}` });
+          convo.messages.push(failed.error
+            ? { ...failed, error: `${failed.error}\n\nRetry failed: ${message}` }
+            : { ...failed, stopped: false, error: `Retry failed: ${message}` });
         } finally {
           convo.pending.splice(convo.pending.indexOf(entry), 1);
           onChange();

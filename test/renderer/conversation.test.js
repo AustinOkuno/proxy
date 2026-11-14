@@ -171,7 +171,9 @@ test('retry replaces the failed reply in place', async () => {
   assert.deepEqual(c.visibleMessages().map((m) => (m.pending ? 'pending' : m.role)), ['user', 'pending']);
   assert.equal(c.canRetry(), false);
   await p;
-  assert.deepEqual(api.calls[0], { sessionId: 's9', retry: true, text: '', images: [] });
+  const { requestId, ...req } = api.calls[0];
+  assert.deepEqual(req, { sessionId: 's9', retry: true, text: '', images: [] });
+  assert.match(requestId, /^r-/);
   assert.deepEqual(c.visibleMessages().map((m) => m.answer || m.text), ['q', 'yes']);
   assert.equal(c.canRetry(), false);
 });
@@ -185,4 +187,89 @@ test('a send that never reached the app cannot be retried', async () => {
   api.release();
   await p;
   assert.equal(c.canRetry(), false);
+});
+
+// ---- Stop ----
+
+/** Fake api whose send waits until it is cancelled (or released), like a hung Gemini call. */
+function stoppableApi() {
+  const api = fakeApi();
+  const inflight = new Map();
+  api.cancels = [];
+  api.chat.send = (req) => {
+    api.calls.push(req);
+    return new Promise((resolve) => {
+      const s = { id: req.sessionId || 's1', messages: [] };
+      const userMessage = { id: `u${api.calls.length}`, role: 'user', text: req.text, images: req.images };
+      inflight.set(req.requestId, {
+        stop: () => resolve({ sessionId: s.id, userMessage, assistantMessage: { id: `a${api.calls.length}`, role: 'assistant', stopped: true } }),
+        ok: () => resolve({ sessionId: s.id, userMessage, assistantMessage: { id: `a${api.calls.length}`, role: 'assistant', answer: 'ok', explanation: '' } }),
+      });
+    });
+  };
+  api.chat.cancel = async ({ requestId }) => {
+    api.cancels.push(requestId);
+    const r = inflight.get(requestId);
+    if (r) r.stop();
+    return { ok: true, cancelled: r ? 1 : 0 };
+  };
+  api.finish = (requestId) => inflight.get(requestId).ok();
+  return api;
+}
+
+test('stop cancels the request in flight, shows Stopped and allows retry', async () => {
+  const api = stoppableApi();
+  const c = createConversation({ api });
+  const p = c.send({ text: '', images: [IMG] });
+  await tick();
+  assert.equal(c.busy, true);
+  assert.ok(api.calls[0].requestId, 'each send carries a request id');
+
+  const stopping = c.stop();
+  assert.equal(c.busy, false, 'the button turns back into Send right away');
+  assert.equal(c.visibleMessages().at(-1).stopping, true);
+  await stopping;
+  await p;
+
+  assert.deepEqual(api.cancels, [api.calls[0].requestId]);
+  const last = c.visibleMessages().at(-1);
+  assert.equal(last.stopped, true);
+  assert.equal(c.canRetry(), true, 'a stopped reply can be retried');
+
+  const r = c.retry();
+  await tick();
+  assert.equal(api.calls[1].retry, true);
+  api.finish(api.calls[1].requestId);
+  await r;
+  assert.equal(c.visibleMessages().at(-1).answer, 'ok');
+});
+
+test('stop also drops sends queued behind the one in flight, and the next send works', async () => {
+  const api = stoppableApi();
+  const c = createConversation({ api });
+  const p1 = c.send({ text: 'one' });
+  const p2 = c.send({ text: 'two' });
+  await tick();
+  assert.equal(api.calls.length, 1);
+  await c.stop();
+  await Promise.all([p1, p2]);
+  assert.equal(api.calls.length, 1, 'the queued send never went out');
+  assert.deepEqual(api.cancels, [api.calls[0].requestId], 'only the started request is cancelled');
+  const kinds = c.visibleMessages().map((m) => (m.stopped ? 'stopped' : m.role));
+  assert.deepEqual(kinds, ['user', 'stopped', 'user', 'stopped']);
+  assert.equal(c.canRetry(), false, 'a send that never reached the app cannot be retried');
+
+  const p3 = c.send({ text: 'three' });
+  await tick();
+  assert.equal(c.busy, true);
+  api.finish(api.calls[1].requestId);
+  await p3;
+  assert.equal(c.visibleMessages().at(-1).answer, 'ok');
+});
+
+test('stop with nothing pending is a no-op', async () => {
+  const api = stoppableApi();
+  const c = createConversation({ api });
+  await c.stop();
+  assert.deepEqual(api.cancels, []);
 });

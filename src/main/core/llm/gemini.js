@@ -13,12 +13,16 @@ const { createImageShrinker, electronNativeImage } = require('./images');
 // if the configured model is unavailable to this key, try the fallbacks in order.
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-flash-latest'];
-const TIMEOUT_MS = 90_000;
+// One HTTP attempt gives up after this long and counts as a temporary failure.
+const TIMEOUT_MS = 60_000;
 // Gemini answers 500/503/504 now and then, mostly when it's busy. Retry the same
 // model after these delays, then try the next (lighter) model once.
 const RETRY_DELAYS_MS = [1_500, 4_000];
 // Stop retrying once a request has been going this long; the user can press Retry.
 const RETRY_BUDGET_MS = 120_000;
+// Hard limit for a whole generate() call, retries and fallbacks included, so a
+// hung request can never leave the chat spinning forever.
+const DEADLINE_MS = 150_000;
 // After falling back because the main model kept failing, stay on the fallback
 // this long before trying the main model again, so every message isn't slow.
 const STICKY_FALLBACK_MS = 10 * 60_000;
@@ -33,6 +37,36 @@ const RESPONSE_SCHEMA = {
   required: ['answer', 'explanation'],
   propertyOrdering: ['answer', 'explanation'],
 };
+
+const STOPPED_MESSAGE = 'Stopped.';
+
+/** Error thrown when the caller's AbortSignal fires (the user pressed Stop). */
+function stoppedError() {
+  const err = new Error(STOPPED_MESSAGE);
+  err.name = 'AbortError';
+  err.stopped = true;
+  return err;
+}
+
+function deadlineMessage(ms) {
+  const secs = Math.max(1, Math.round(ms / 1000));
+  const when = secs < 120 ? `${secs} second${secs === 1 ? '' : 's'}` : `${Math.round(secs / 6) / 10} minutes`;
+  return `Gemini didn't answer within ${when}, so the request was stopped. Press Retry to try again.`;
+}
+
+/** Reject as soon as `signal` aborts, even if `promise` never settles (e.g. an SDK that ignores aborts). */
+function raceAbort(promise, signal, makeError) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(makeError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(makeError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      (e) => { signal.removeEventListener('abort', onAbort); reject(e); },
+    );
+  });
+}
 
 function defaultClientFactory(apiKey) {
   const { GoogleGenAI } = require('@google/genai');
@@ -86,6 +120,7 @@ function friendlyError(err, apiKey) {
  *   sleep?: (ms: number) => Promise<void>,
  *   now?: () => number,
  *   logger?: Pick<Console,'warn'>,
+ *   deadlineMs?: number,
  * }} opts
  */
 function createGeminiProvider({
@@ -95,6 +130,7 @@ function createGeminiProvider({
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   now = Date.now,
   logger = console,
+  deadlineMs = DEADLINE_MS,
 } = {}) {
   const apiKey = String(env.GEMINI_API_KEY || '').trim();
   const configured = String(env.GEMINI_MODEL || '').trim() || DEFAULT_MODEL;
@@ -105,15 +141,17 @@ function createGeminiProvider({
   let sticky = null;
 
   /** One model, retried with backoff while the errors look temporary. */
-  async function callModel(m, params, start) {
+  async function callModel(m, params, start, signal) {
     for (let attempt = 0; ; attempt++) {
+      if (signal.aborted) throw stoppedError();
       try {
-        return await client.models.generateContent({ ...params, model: m });
+        return await client.models.generateContent({ ...params, model: m, config: { ...params.config, abortSignal: signal } });
       } catch (err) {
+        if (signal.aborted) throw err;
         const delay = RETRY_DELAYS_MS[attempt];
         if (!isTransient(err) || delay === undefined || now() - start + delay > RETRY_BUDGET_MS) throw err;
         logger.warn(`[core] Gemini ${m} failed (${errStatus(err) || err.message}); retrying in ${delay} ms.`);
-        await sleep(delay);
+        await raceAbort(sleep(delay), signal, stoppedError);
       }
     }
   }
@@ -122,7 +160,7 @@ function createGeminiProvider({
    * Try the current model, then the next ones: permanently when a model isn't
    * available to this key, and for STICKY_FALLBACK_MS when Gemini keeps failing.
    */
-  async function call(params) {
+  async function call(params, signal) {
     const start = now();
     if (sticky && start >= sticky.until) sticky = null;
     const from = sticky ? sticky.model : model;
@@ -132,7 +170,7 @@ function createGeminiProvider({
     for (let i = 0; i < list.length; i++) {
       const m = list[i];
       try {
-        const response = await callModel(m, params, start);
+        const response = await callModel(m, params, start, signal);
         if (m !== from && skippedOnlyUnavailable && !sticky) {
           logger.warn(`[core] Gemini model ${model} is not available to this key; using ${m}.`);
           model = m;
@@ -142,6 +180,7 @@ function createGeminiProvider({
         return { response, model: m };
       } catch (err) {
         lastErr = err;
+        if (signal.aborted) break;
         if (isModelUnavailable(err)) continue;
         if (isTransient(err) && i + 1 < list.length && now() - start < RETRY_BUDGET_MS) {
           skippedOnlyUnavailable = false;
@@ -165,25 +204,44 @@ function createGeminiProvider({
     get model() {
       return model;
     },
-    async generate({ messages, answerStyle }) {
+    /**
+     * @param {{ messages: object[], answerStyle: string, signal?: AbortSignal }} req
+     *   signal: abort to stop the request (and any retries). generate() then
+     *   rejects with an error whose `stopped` is true.
+     */
+    async generate({ messages, answerStyle, signal } = {}) {
+      if (signal && signal.aborted) throw stoppedError();
       if (!apiKey) throw new Error(MISSING_KEY_MESSAGE);
       const contents = buildContents(shrinkMessages(messages || []));
       if (!contents.length) throw new Error('Nothing to send to Gemini.');
       if (!client) client = clientFactory(apiKey);
 
+      // One controller for this call: the user's Stop and the overall deadline
+      // both abort it, which cancels the HTTP request and any pending retry.
+      const ctl = new AbortController();
+      let timedOut = false;
+      const onStop = () => ctl.abort();
+      if (signal) signal.addEventListener('abort', onStop, { once: true });
+      const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, deadlineMs);
+      const abortError = () => (timedOut ? new Error(deadlineMessage(deadlineMs)) : stoppedError());
+
       let response;
       let usedModel = model;
       try {
-        ({ response, model: usedModel } = await call({
+        ({ response, model: usedModel } = await raceAbort(call({
           contents,
           config: {
             systemInstruction: systemInstruction(answerStyle),
             responseMimeType: 'application/json',
             responseSchema: RESPONSE_SCHEMA,
           },
-        }));
+        }, ctl.signal), ctl.signal, abortError));
       } catch (err) {
+        if (ctl.signal.aborted) throw abortError();
         throw new Error(friendlyError(err, apiKey));
+      } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onStop);
       }
 
       const text = response && typeof response.text === 'string' ? response.text : '';
@@ -199,4 +257,17 @@ function createGeminiProvider({
   };
 }
 
-module.exports = { createGeminiProvider, friendlyError, MISSING_KEY_MESSAGE, DEFAULT_MODEL, FALLBACK_MODELS, RESPONSE_SCHEMA, RETRY_DELAYS_MS, STICKY_FALLBACK_MS, isTransient };
+module.exports = {
+  createGeminiProvider,
+  friendlyError,
+  MISSING_KEY_MESSAGE,
+  STOPPED_MESSAGE,
+  DEFAULT_MODEL,
+  FALLBACK_MODELS,
+  RESPONSE_SCHEMA,
+  RETRY_DELAYS_MS,
+  STICKY_FALLBACK_MS,
+  DEADLINE_MS,
+  deadlineMessage,
+  isTransient,
+};

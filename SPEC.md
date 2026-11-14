@@ -32,6 +32,8 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 - **Answer style** (setting): `answer` only, `explanation` only, or `both` (default).
 - The model's reply is split into an **answer** section and an **explanation** section. Each has its own **Copy** button.
 - Model failures (no key, network, quota) show as an error bubble in the chat; they do not crash the app. Temporary Gemini failures (5xx, timeouts) are retried with backoff, then the lite model is used for 10 minutes. The last error bubble has a **Retry** button (`chat:send` with `retry: true`).
+- **Stop:** while a reply is on its way, the Send button becomes **Stop** (Esc does the same). It cancels the Gemini request and any automatic retry or fallback (`chat:cancel`), drops sends queued behind it, and leaves a small **Stopped** marker with a Retry button. The user can send again right away. Enter does not send while a reply is on its way, so the draft stays in the box.
+- **Timeout:** each Gemini attempt gives up after 60 s, and a whole request (retries and fallbacks included) is cut off after 2.5 minutes with an error bubble that has Retry, so a hung call never spins forever.
 - Screenshots larger than 2048 px on a side are scaled down for the copy sent to the model; history keeps the original.
 
 ### History
@@ -127,6 +129,8 @@ core.history.updateFolder(id, { name?, collapsed? })  // -> Folder
 core.history.deleteFolder(id)               // -> void; its chats move to the top level
 
 core.chat.send(ChatSendRequest)             // -> Promise<ChatSendResult>
+core.chat.cancel({ requestId?, sessionId? }) // -> { ok: true, cancelled: number }; the stopped send resolves
+                                            //    with an assistant Message that has `stopped: true` (saved in history)
 
 core.registerIpc(ipcMain, { sendToPanel })  // registers every Worker 2 INVOKE channel;
                                             // emits SETTINGS_CHANGED and HISTORY_CHANGED via sendToPanel
@@ -141,6 +145,8 @@ const provider = createProvider('gemini', { env });   // llm/index.js
 await provider.generate({
   messages,      // Message[]: the whole session so far, including the new user message
   answerStyle,   // ANSWER_STYLES value
+  signal,        // optional AbortSignal: abort to stop the call and its retries;
+                 // generate() then rejects with an error whose `stopped` is true
 });              // -> Promise<ProviderReply>  { answer: string, explanation: string }
                  //    throws Error with a user-readable message on failure
 ```
@@ -150,6 +156,7 @@ await provider.generate({
 - Previous assistant turns are sent back to the model as text (answer + explanation).
 - Missing `GEMINI_API_KEY` → throw `Error('Gemini API key missing. Add GEMINI_API_KEY to .env and restart.')`.
 - `chat.send` catches provider errors and stores/returns an assistant `Message` with `error` set. It does not reject for model errors.
+- When the request is cancelled, `chat.send` stores/returns an assistant `Message` with `stopped: true` (no answer or error). Retry replaces it like a failed reply. Stopped turns are not sent to the model.
 
 ### 4.3 Shell (Worker 1) — `src/main/shell/index.js`
 
@@ -193,7 +200,8 @@ Channel names live in `src/shared/contracts.js` (`INVOKE`, `EVENTS`). The render
 
 | Call | Returns | Handled by |
 |---|---|---|
-| `proxy.chat.send({ sessionId, text, images })` | `ChatSendResult` | W2 |
+| `proxy.chat.send({ sessionId, text, images, requestId? })` | `ChatSendResult` | W2 |
+| `proxy.chat.cancel(requestId)` or `proxy.chat.cancel({ sessionId })` | `{ ok, cancelled }` | W2 |
 | `proxy.history.list()` | `SessionSummary[]` | W2 |
 | `proxy.history.get(id)` | `Session \| null` | W2 |
 | `proxy.history.create()` | `Session` | W2 |
@@ -240,6 +248,7 @@ With `sendMode = wait`, step 2 instead adds the image as an attachment chip in t
 
 - Layout: session sidebar (collapsible, since the panel is narrow), message list, composer (textarea + attachments + Send), toolbar (Snip, Full screenshot, New chat, Full-screen toggle, Hide, Settings).
 - Settings view: hotkeys (text inputs with accelerator strings; validate non-empty or empty-to-disable), send mode, panel visibility, answer style. Saves through `proxy.settings.update`.
+- While the open chat is waiting on a reply, the Send button reads **Stop** and calls `conversation.stop()` (Esc too). A stopped reply renders as a small "Stopped" marker; the last one has Retry.
 - Assistant bubble: an "Answer" block and an "Explanation" block (only those with content), each with a Copy button using `proxy.clipboard.writeText`, and a small label with the model that answered (`Message.model`). Error messages render as an error bubble; the last one has a Retry button when the failed message was saved.
 - Enter sends, Shift+Enter is a newline. Paste of an image into the composer is a nice-to-have.
 - **Styling is separable:** all colors, fonts, radii and spacing are CSS variables in `styles/theme.css`. Component CSS in `styles/app.css` uses only those variables. No inline styles in JS except for dynamic sizing.
