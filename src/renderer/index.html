@@ -9,11 +9,80 @@
   <link rel="stylesheet" href="styles/app.css">
 </head>
 <body>
-  <!-- OWNER: Worker 3. Placeholder from the scaffold. -->
-  <main id="app">
-    <h1>Proxy</h1>
-    <p id="status">Loading…</p>
-  </main>
+  <!-- OWNER: Worker 3. Chat panel. Behaviour lives in app.js and views/. -->
+  <div id="app" class="app">
+    <header class="toolbar" role="toolbar" aria-label="Panel actions">
+      <button type="button" class="btn icon" id="btn-sidebar" title="Chats" aria-label="Show chats" aria-expanded="false">☰</button>
+      <button type="button" class="btn" id="btn-snip" title="Snip a region">Snip</button>
+      <button type="button" class="btn" id="btn-fullshot" title="Capture the whole screen">Full</button>
+      <button type="button" class="btn" id="btn-new" title="Start a new chat">New chat</button>
+      <span class="toolbar-spacer"></span>
+      <button type="button" class="btn icon" id="btn-settings" title="Settings" aria-label="Settings">⚙</button>
+      <button type="button" class="btn icon" id="btn-fullscreen" title="Full screen" aria-label="Toggle full screen">⛶</button>
+      <button type="button" class="btn icon" id="btn-hide" title="Hide panel" aria-label="Hide panel">–</button>
+    </header>
+
+    <div class="banner" id="banner" role="alert" hidden>
+      <span id="banner-text"></span>
+      <button type="button" class="btn icon small" id="banner-close" aria-label="Dismiss">×</button>
+    </div>
+
+    <div class="body">
+      <aside class="sidebar" id="sidebar" aria-label="Chats">
+        <div class="sidebar-head">
+          <span class="sidebar-title">Chats</span>
+          <button type="button" class="btn small" id="btn-new-side">New chat</button>
+        </div>
+        <ul class="session-list" id="session-list"></ul>
+        <p class="muted empty-note" id="session-empty" hidden>No chats yet.</p>
+      </aside>
+
+      <section class="chat" id="chat-view" aria-label="Chat">
+        <div class="messages" id="messages" aria-live="polite"></div>
+
+        <form class="composer" id="composer" autocomplete="off">
+          <div class="attachments" id="attachments" hidden></div>
+          <div class="composer-row">
+            <textarea id="input" rows="1" placeholder="Ask about a screenshot, or anything…" aria-label="Message"></textarea>
+            <button type="submit" class="btn primary" id="btn-send" disabled>Send</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="settings" id="settings-view" aria-label="Settings" hidden>
+        <form id="settings-form" class="settings-form" novalidate>
+          <h2>Settings</h2>
+
+          <fieldset>
+            <legend>Hotkeys</legend>
+            <p class="muted hint">Electron accelerators, like <code>Super+Shift+S</code> (Super is the Windows key). Leave empty to turn a hotkey off. Press Record, then the keys.</p>
+            <div id="hotkey-fields"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>After a capture</legend>
+            <div id="send-mode-options" class="options"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Panel visibility</legend>
+            <div id="visibility-options" class="options"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Answer style</legend>
+            <div id="answer-style-options" class="options"></div>
+          </fieldset>
+
+          <div class="settings-actions">
+            <span class="muted" id="settings-status" role="status"></span>
+            <button type="button" class="btn" id="btn-settings-cancel">Back</button>
+            <button type="submit" class="btn primary" id="btn-settings-save">Save</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
   <script type="module" src="app.js"></script>
 </body>
 </html>
