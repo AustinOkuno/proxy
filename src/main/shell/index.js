@@ -4,13 +4,22 @@
  * Shell: global hotkeys, screen capture (region snip + full screen), panel and
  * overlay window management. OWNER: Worker 1.
  *
- * STUB from the scaffold: opens the panel window and nothing else. Worker 1
- * replaces the internals; the exported shape must keep matching SPEC.md
- * section "Main-process module interfaces".
+ * Exported shape matches SPEC.md section 4.3.
  */
 
-const { BrowserWindow, globalShortcut, clipboard } = require('electron');
+const { globalShortcut, clipboard } = require('electron');
 const { INVOKE, EVENTS } = require('../../shared/contracts');
+const { createPanel } = require('./panel');
+const { createHotkeyManager } = require('./hotkeys');
+const { displayUnderCursor, grabDisplay, cropToSelection, toImageData } = require('./capture');
+const { openOverlay } = require('./overlay/overlay');
+const visibility = require('./visibility');
+
+// Time for the compositor to actually remove the hidden panel from the screen
+// before we grab it.
+const HIDE_SETTLE_MS = 250;
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * @param {{
@@ -20,70 +29,136 @@ const { INVOKE, EVENTS } = require('../../shared/contracts');
  * }} opts
  */
 async function createShell({ settings, preloadPath, rendererHtmlPath }) {
-  let panel = null;
+  const panel = createPanel({
+    settings,
+    preloadPath,
+    rendererHtmlPath,
+    onStateChange: (state) => panel.send(EVENTS.WINDOW_STATE, state),
+  });
 
-  function windowState() {
-    return {
-      visible: !!panel && panel.isVisible(),
-      fullscreen: !!panel && panel.isFullScreen(),
-      alwaysOnTop: !!panel && panel.isAlwaysOnTop(),
-    };
-  }
+  let capturing = false;
+  let activeOverlay = null;
+  let unsubscribe = null;
+  let mode = settings.get().panelVisibility;
 
   function sendToPanel(channel, payload) {
-    if (panel && !panel.isDestroyed()) panel.webContents.send(channel, payload);
+    panel.send(channel, payload);
   }
 
   function showPanel() {
-    if (!panel) return;
     panel.show();
-    panel.focus();
   }
 
+  function reportError(message) {
+    console.warn(`[shell] ${message}`);
+    sendToPanel(EVENTS.CAPTURE_ERROR, { message });
+  }
+
+  /**
+   * Shared capture flow. `kind` is 'region' | 'fullscreen'.
+   * Hides the panel, grabs the display under the cursor, (for region) lets the
+   * user select, then shows the panel and sends CAPTURE_READY.
+   */
+  async function capture(kind) {
+    if (capturing) return;
+    capturing = true;
+    const wasVisible = panel.isVisible();
+    try {
+      const display = displayUnderCursor();
+      if (wasVisible) {
+        panel.hide();
+        await delay(HIDE_SETTLE_MS);
+      }
+      let image = await grabDisplay(display);
+
+      if (kind === 'region') {
+        activeOverlay = openOverlay(display, image);
+        const rect = await activeOverlay.result;
+        activeOverlay = null;
+        if (!rect) {
+          if (wasVisible) panel.show();
+          sendToPanel(EVENTS.CAPTURE_CANCELLED);
+          return;
+        }
+        image = cropToSelection(image, display, rect);
+        if (!image) {
+          if (wasVisible) panel.show();
+          sendToPanel(EVENTS.CAPTURE_CANCELLED);
+          return;
+        }
+      }
+
+      const result = { kind, image: toImageData(image), capturedAt: Date.now() };
+      panel.show();
+      sendToPanel(EVENTS.CAPTURE_READY, result);
+    } catch (err) {
+      panel.show();
+      reportError(`Screen capture failed: ${err.message}`);
+    } finally {
+      activeOverlay = null;
+      capturing = false;
+    }
+  }
+
+  function togglePanel() {
+    if (visibility.toggleAction(mode, panel.isVisible()) === 'hide') panel.hide();
+    else panel.show();
+  }
+
+  const hotkeys = createHotkeyManager({
+    globalShortcut,
+    handlers: {
+      regionSnip: () => capture('region'),
+      fullScreenshot: () => capture('fullscreen'),
+      togglePanel,
+    },
+    onError: (message) => sendToPanel(EVENTS.CAPTURE_ERROR, { message }),
+  });
+
   async function start() {
-    const bounds = settings.get().panelBounds || { width: 420, height: 640 };
-    panel = new BrowserWindow({
-      ...bounds,
-      title: 'Proxy',
-      backgroundColor: '#16171a',
-      alwaysOnTop: true,
-      frame: true,
-      show: false,
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false,
-      },
+    await panel.create();
+    const s = settings.get();
+    mode = s.panelVisibility;
+    if (visibility.showAtStart(mode)) panel.show();
+
+    // Register after the panel has loaded so failures reach the chat as errors.
+    hotkeys.apply(s.hotkeys);
+
+    unsubscribe = settings.onChange((next) => {
+      hotkeys.apply(next.hotkeys);
+      if (visibility.onModeChange(mode, next.panelVisibility) === 'show') panel.show();
+      mode = next.panelVisibility;
     });
-    panel.once('ready-to-show', () => panel.show());
-    await panel.loadFile(rendererHtmlPath);
   }
 
   function registerIpc(ipcMain) {
-    const notYet = (what) => () => {
-      sendToPanel(EVENTS.CAPTURE_ERROR, { message: `${what} is not implemented yet` });
+    ipcMain.handle(INVOKE.CAPTURE_REGION, () => {
+      capture('region');
       return { ok: true };
-    };
-    ipcMain.handle(INVOKE.CAPTURE_REGION, notYet('Region snip'));
-    ipcMain.handle(INVOKE.CAPTURE_FULLSCREEN, notYet('Full screenshot'));
-    ipcMain.handle(INVOKE.WINDOW_TOGGLE_FULLSCREEN, () => {
-      panel.setFullScreen(!panel.isFullScreen());
-      return windowState();
     });
+    ipcMain.handle(INVOKE.CAPTURE_FULLSCREEN, () => {
+      capture('fullscreen');
+      return { ok: true };
+    });
+    ipcMain.handle(INVOKE.WINDOW_TOGGLE_FULLSCREEN, () => panel.toggleFullscreen());
     ipcMain.handle(INVOKE.WINDOW_HIDE, () => {
       panel.hide();
-      return windowState();
+      return panel.state();
     });
-    ipcMain.handle(INVOKE.WINDOW_GET_STATE, () => windowState());
-    ipcMain.handle(INVOKE.CLIPBOARD_WRITE_TEXT, (_e, { text }) => {
-      clipboard.writeText(String(text ?? ''));
+    ipcMain.handle(INVOKE.WINDOW_GET_STATE, () => panel.state());
+    ipcMain.handle(INVOKE.CLIPBOARD_WRITE_TEXT, (_e, arg) => {
+      clipboard.writeText(String((arg && arg.text) ?? ''));
       return { ok: true };
     });
   }
 
   function dispose() {
+    if (unsubscribe) unsubscribe();
+    unsubscribe = null;
+    hotkeys.dispose();
     globalShortcut.unregisterAll();
+    if (activeOverlay) activeOverlay.close();
+    panel.dispose();
   }
 
   return { start, showPanel, sendToPanel, registerIpc, dispose };
