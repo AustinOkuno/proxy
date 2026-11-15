@@ -41,7 +41,7 @@ test('Claude (Pro) provider and models', () => {
 
 test('default hotkeys avoid Super (Cinnamon grabs it) and differ from the v1 defaults', () => {
   const s = c.defaultSettings();
-  assert.ok(c.SETTINGS_VERSION >= 2);
+  assert.ok(c.SETTINGS_VERSION >= 3);
   for (const [name, acc] of Object.entries(s.hotkeys)) {
     assert.doesNotMatch(acc, /super|meta/i, name);
     assert.notEqual(acc, c.LEGACY_HOTKEY_DEFAULTS[name]);
