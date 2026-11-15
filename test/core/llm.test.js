@@ -352,3 +352,10 @@ test('parseReply repairs LaTeX the model forgot to escape', () => {
   assert.equal(r.answer, '$\\frac{a}{b}$');
   assert.equal(r.explanation, '$\\beta \\times \\rho$\nnext line');
 });
+
+test('systemInstruction explains plot blocks', () => {
+  const s = systemInstruction('both');
+  assert.match(s, /language plot/);
+  assert.match(s, /"series"/);
+  assert.match(s, /sin cos tan asin acos atan sqrt abs ln log exp/);
+});

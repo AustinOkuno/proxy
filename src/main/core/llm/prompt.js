@@ -13,6 +13,10 @@ const FORMAT_INSTRUCTION = [
   'Math: $...$ inline and $$...$$ for a displayed equation, in LaTeX (for example $\\frac{a}{b}$, $x^2$).',
   'Chemistry: \\ce{...} inside math, for example $\\ce{2H2 + O2 -> 2H2O}$ or $\\ce{SO4^2-}$.',
   'Code: fenced code blocks with a language, for example ```python.',
+  'Graphs: when a graph helps (a curve, a titration, data points), add a fenced block with language plot holding JSON:',
+  '{"title": "...", "x": {"label": "...", "min": 0, "max": 50}, "y": {"label": "...", "min": 0, "max": 14},',
+  ' "series": [{"label": "fit", "fn": "7 + 6*atan((x-25)/2)/pi"}, {"label": "data", "points": [[0,1.2],[25,7]]}]}.',
+  'fn is an expression in x using + - * / ^, parentheses, pi, e, sin cos tan asin acos atan sqrt abs ln log exp.',
   'Because the reply is JSON, every backslash inside the strings must be escaped (write \\\\frac, \\\\ce).',
 ].join('\n');
 

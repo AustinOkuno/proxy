@@ -97,3 +97,21 @@
 .rich .rich-table .align-center { text-align: center; }
 .rich .rich-table .align-right { text-align: right; }
 .rich .rich-table th { background: var(--surface-2); }
+
+/* ---- Plots ------------------------------------------------------------- */
+/* Fallbacks to older tokens keep graphs visible until the theme sets --plot-*. */
+.rich .rich-plot { margin: 0 0 calc(var(--gap) * 0.75); font-family: var(--font-ui); font-size: var(--size-ui); font-weight: normal; text-shadow: none; }
+.rich .rich-plot-title { margin-bottom: calc(var(--gap) / 4); color: var(--text); }
+.rich .rich-plot-svg { display: block; width: 100%; max-width: 480px; height: auto; }
+.rich .rich-plot-svg text { font-family: var(--font-ui); font-size: 9px; fill: var(--plot-axis, var(--text-muted)); }
+.rich .rich-plot-svg .plot-label { font-size: 10px; }
+.rich .rich-plot-svg .plot-grid { stroke: var(--plot-grid, var(--border)); stroke-width: 0.5; }
+.rich .rich-plot-svg .plot-axis { fill: none; stroke: var(--plot-axis, var(--text-muted)); stroke-width: 1; }
+.rich .rich-plot-svg .plot-line { fill: none; stroke-width: 1.75; stroke-linejoin: round; }
+.rich .plot-series-1 { stroke: var(--plot-1, var(--accent)); fill: var(--plot-1, var(--accent)); color: var(--plot-1, var(--accent)); }
+.rich .plot-series-2 { stroke: var(--plot-2, var(--warning)); fill: var(--plot-2, var(--warning)); color: var(--plot-2, var(--warning)); }
+.rich .plot-series-3 { stroke: var(--plot-3); fill: var(--plot-3); color: var(--plot-3); }
+.rich .plot-series-4 { stroke: var(--plot-4); fill: var(--plot-4); color: var(--plot-4); }
+.rich .rich-plot-legend { display: flex; flex-wrap: wrap; gap: calc(var(--gap) / 2) var(--gap); margin-top: calc(var(--gap) / 4); }
+.rich .rich-plot-key::before { content: '■ '; }
+.rich .rich-plot-note { color: var(--text-muted); margin: 0 0 calc(var(--gap) / 4); }
