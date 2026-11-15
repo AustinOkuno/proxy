@@ -9,6 +9,7 @@
 const { app, BrowserWindow, screen } = require('electron');
 const { PANEL_DOCKS, SETTINGS_LIMITS, DEFAULT_SETTINGS } = require('../../shared/contracts');
 const { initialPanelBounds, dockBounds, workAreaFor, settlePanel, CORNERS } = require('./geometry');
+const { startWatch, watchStep } = require('./release');
 
 const DEFAULT_SIZE = { width: 420, height: 640 };
 const SAVE_DELAY_MS = 500;
@@ -17,6 +18,8 @@ const SAVE_DELAY_MS = 500;
 const SETTLE_MS = 300;
 // Moves caused by our own setBounds are not user drags.
 const OWN_MOVE_MS = SETTLE_MS + 400;
+// While waiting to see whether the mouse button is still held (release.js).
+const RELEASE_POLL_MS = 50;
 
 const DOCK_VALUES = new Set(Object.values(PANEL_DOCKS));
 
@@ -49,6 +52,8 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
   let win = null;
   let saveTimer = null;
   let settleTimer = null;
+  /** Waiting for the mouse release before snapping: { timer, state } or null. */
+  let watch = null;
   let lastSent = '';
   let ownMoveUntil = 0;
   /** Bounds when the last move/resize settled (to tell a move from a resize). */
@@ -112,6 +117,7 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
   /** Move the window ourselves, without it counting as a user drag. */
   function place(bounds) {
     if (!alive()) return;
+    stopWatch();
     const cur = win.getBounds();
     if (sameRect(cur, bounds)) return;
     ownMoveUntil = Date.now() + OWN_MOVE_MS;
@@ -146,14 +152,15 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
     return state();
   }
 
-  /** The user stopped dragging or resizing: snap, re-dock, or go free. */
-  function onSettle() {
-    if (!canPlace()) return;
-    const next = win.getBounds();
-    const prev = settled;
-    settled = next;
-    if (Date.now() < ownMoveUntil) return;
-    const result = settlePanel({
+  function stopWatch() {
+    if (!watch) return;
+    clearTimeout(watch.timer);
+    watch = null;
+  }
+
+  /** What settling the panel at its current bounds would do. */
+  function settleResult(next, prev) {
+    return settlePanel({
       prev,
       next,
       dock: prefs.dock,
@@ -162,6 +169,9 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
       snapDistance: SETTINGS_LIMITS.snapDistance,
       margin: prefs.margin,
     });
+  }
+
+  function applyResult(result) {
     place(result.bounds);
     if (result.dock !== prefs.dock) {
       prefs = { ...prefs, dock: result.dock };
@@ -170,8 +180,52 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
     }
   }
 
+  /**
+   * The window went still. Going free applies at once; a snap or re-dock that
+   * would move the window waits until the mouse button is let go, so the panel
+   * never jumps into a corner while it is still held.
+   */
+  function onSettle() {
+    stopWatch();
+    if (!canPlace()) return;
+    const next = win.getBounds();
+    const prev = settled;
+    settled = next;
+    if (Date.now() < ownMoveUntil) return;
+    const result = settleResult(next, prev);
+    if (sameRect(result.bounds, next)) {
+      applyResult(result);
+      return;
+    }
+    let state = startWatch({ bounds: next, cursor: screen.getCursorScreenPoint(), at: Date.now() });
+    const poll = () => {
+      if (!canPlace()) return stopWatch();
+      const step = watchStep(state, { bounds: win.getBounds(), cursor: screen.getCursorScreenPoint(), at: Date.now() });
+      state = step.state;
+      if (step.decision === 'wait') {
+        watch.timer = setTimeout(poll, RELEASE_POLL_MS);
+        return;
+      }
+      stopWatch();
+      // Still dragging: the next 'move' events settle again.
+      if (step.decision === 'released') release();
+    };
+    // Decide again on release, in case the snap setting changed meanwhile.
+    const release = () => {
+      stopWatch();
+      if (canPlace()) applyResult(settleResult(win.getBounds(), prev));
+    };
+    watch = { timer: setTimeout(poll, RELEASE_POLL_MS), release };
+  }
+
+  /** A key press in the panel means the mouse is no longer dragging it. */
+  function releaseNow() {
+    if (watch && canPlace() && sameRect(win.getBounds(), settled)) watch.release();
+  }
+
   function onMoveOrResize() {
     clearTimeout(settleTimer);
+    if (watch && Date.now() >= ownMoveUntil) stopWatch();
     settleTimer = setTimeout(onSettle, SETTLE_MS);
     scheduleSave();
   }
@@ -237,12 +291,14 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
     win.on('closed', () => {
       clearTimeout(saveTimer);
       clearTimeout(settleTimer);
+      stopWatch();
       win = null;
     });
 
     // A frameless window on Linux has no menu bar, so the default menu's
     // Ctrl+Q may not fire. Keep "quit with Ctrl+Q" working.
     win.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') releaseNow();
       if (input.type === 'keyDown' && input.control && !input.alt && !input.shift && !input.meta &&
           String(input.key).toLowerCase() === 'q') {
         event.preventDefault();
@@ -315,6 +371,7 @@ function createPanel({ settings, preloadPath, rendererHtmlPath, onStateChange })
   function dispose() {
     clearTimeout(saveTimer);
     clearTimeout(settleTimer);
+    stopWatch();
     for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) {
       screen.removeListener(ev, onDisplaysChanged);
     }

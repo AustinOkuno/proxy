@@ -63,3 +63,19 @@ test('focusPanel is validated when the form has it and left out when it does not
   const dup = build({ ...base, hotkeys: { regionSnip: 'Ctrl+Alt+S', fullScreenshot: '', togglePanel: '', focusPanel: 'Ctrl+Alt+S' } }, enums);
   assert.ok(dup.errors['hotkeys.focusPanel']);
 });
+
+test('buildPanelPatch keeps only the fields given and clamps the gap', async () => {
+  const { buildPanelPatch } = await import('../../src/renderer/lib/settings-form.js');
+  const { PANEL_DOCKS, SETTINGS_LIMITS } = require('../../src/shared/contracts.js');
+  const e = { PANEL_DOCKS, SETTINGS_LIMITS };
+  assert.deepEqual(buildPanelPatch({ snap: false }, e).patch, { panel: { snap: false } });
+  assert.deepEqual(buildPanelPatch({ dock: 'bottom-left' }, e).patch, { panel: { dock: 'bottom-left' } });
+  assert.deepEqual(buildPanelPatch({ margin: '20.4' }, e).patch, { panel: { margin: 20 } });
+  assert.deepEqual(buildPanelPatch({ margin: 500 }, e).patch, { panel: { margin: SETTINGS_LIMITS.panelMargin.max } });
+  assert.deepEqual(buildPanelPatch({ margin: -3 }, e).patch, { panel: { margin: 0 } });
+  const bad = buildPanelPatch({ margin: '', dock: 'middle' }, e);
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors['panel.margin']);
+  assert.ok(bad.errors['panel.dock']);
+  assert.deepEqual(buildPanelPatch({}, e).patch, {});
+});
