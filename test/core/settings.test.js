@@ -101,7 +101,8 @@ test('v1 settings on the old Super+Shift defaults move to the new defaults; cust
   );
   const s = createSettingsStore({ dataDir: dir, logger: quietLogger() });
   const got = s.get();
-  assert.deepEqual(got.hotkeys, { regionSnip: 'Ctrl+Alt+S', fullScreenshot: 'Alt+F9', togglePanel: 'Ctrl+Alt+P' });
+  // Moved and kept hotkeys as listed; any hotkey v1 didn't have (focusPanel) gets today's default.
+  assert.deepEqual(got.hotkeys, { ...defaultSettings().hotkeys, regionSnip: 'Ctrl+Alt+S', fullScreenshot: 'Alt+F9', togglePanel: 'Ctrl+Alt+P' });
   assert.equal(got.sendMode, 'wait');
   assert.equal(got.version, SETTINGS_VERSION);
   // Saved right away, so the next start doesn't migrate again.
@@ -305,4 +306,11 @@ test('bad v3 entries in settings.json are dropped on load, good ones kept', () =
   assert.equal(got.panel.margin, 8);
   assert.equal(got.usage.geminiDailyRequests, null);
   assert.ok(log.warnings.some((w) => /ignored invalid entries/.test(w)));
+});
+
+test('hotkeys.focusPanel defaults to Ctrl+Alt+Space once the default is in contracts', () => {
+  const hk = createSettingsStore({ dataDir: tmpDir(), logger: quietLogger() }).get().hotkeys;
+  const def = defaultSettings().hotkeys.focusPanel;
+  assert.equal(hk.focusPanel, def);
+  if (def !== undefined) assert.equal(def, 'Ctrl+Alt+Space');
 });
