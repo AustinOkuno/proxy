@@ -41,9 +41,9 @@ const GEMINI = (budget = null) => ({ provider: 'gemini', usage: { geminiDailyReq
 test('parseRateLimitEvent reads recorded CLI lines', () => {
   const parsed = CLI_LINES.map((l) => parseRateLimitEvent(JSON.parse(l)));
   assert.equal(parsed[0], null);
-  assert.deepEqual(parsed[1], { type: 'five_hour', status: 'allowed', resetsAt: RESET_5H * 1000, utilization: 0.42 });
-  assert.deepEqual(parsed[2], { type: 'seven_day', status: 'allowed_warning', resetsAt: RESET_7D * 1000, utilization: 0.91 });
-  assert.deepEqual(parsed[3], { type: 'seven_day_opus', status: 'allowed', resetsAt: RESET_7D * 1000, utilization: null });
+  assert.deepEqual(parsed[1], { type: 'five_hour', status: 'allowed', resetsAt: RESET_5H * 1000, utilization: 0.42, windows: [] });
+  assert.deepEqual(parsed[2], { type: 'seven_day', status: 'allowed_warning', resetsAt: RESET_7D * 1000, utilization: 0.91, windows: [] });
+  assert.deepEqual(parsed[3], { type: 'seven_day_opus', status: 'allowed', resetsAt: RESET_7D * 1000, utilization: null, windows: [] });
   assert.equal(parsed[5], null);
 });
 
@@ -57,6 +57,111 @@ test('parseRateLimitEvent handles ms, ISO times, percentages and junk', () => {
   assert.equal(parseRateLimitEvent(ev(null)), null);
   assert.equal(parseRateLimitEvent({ type: 'rate_limit_event' }), null);
   assert.equal(parseRateLimitEvent(null), null);
+});
+
+// Current CLIs (2.1.x) put every window in rate_limit_info.unifiedWindows,
+// read from the anthropic-ratelimit-unified-* headers: utilization is a
+// fraction (it can pass 1 when usage runs over a cap), resetsAt is epoch
+// seconds, status is optional. rateLimitType names the window that triggered
+// the event, and is left out once that window has reset.
+const UNIFIED_LINES = [
+  `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":${RESET_5H},"rateLimitType":"five_hour","utilization":0.37,"isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.37,"resetsAt":${RESET_5H}},"seven_day":{"utilization":0.64,"resetsAt":${RESET_7D}}}},"uuid":"u4","session_id":"abc"}`,
+  `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.02,"resetsAt":${RESET_5H + 5 * 3600}},"seven_day":{"utilization":0.83,"resetsAt":${RESET_7D},"status":"allowed_warning","surpassedThreshold":0.75},"seven_day_overage_included":{"utilization":0.1,"resetsAt":${RESET_7D}}}},"uuid":"u5","session_id":"abc"}`,
+  `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":${RESET_5H},"rateLimitType":"five_hour","utilization":1.04,"unifiedWindows":{"five_hour":{"utilization":1.04,"resetsAt":${RESET_5H}},"seven_day":{"utilization":0.71,"resetsAt":${RESET_7D}}}},"uuid":"u6","session_id":"abc"}`,
+];
+
+test('parseRateLimitEvent reads both windows from unifiedWindows', () => {
+  const [a, b, c] = UNIFIED_LINES.map((l) => parseRateLimitEvent(JSON.parse(l)));
+  assert.equal(a.type, 'five_hour');
+  assert.deepEqual(a.windows, [
+    { type: 'five_hour', status: 'allowed', resetsAt: RESET_5H * 1000, utilization: 0.37 },
+    { type: 'seven_day', status: 'allowed', resetsAt: RESET_7D * 1000, utilization: 0.64 },
+  ]);
+  // No rateLimitType: still usable, and each window keeps its own status.
+  assert.equal(b.type, null);
+  assert.deepEqual(b.windows.map((w) => [w.type, w.status, w.utilization]), [
+    ['five_hour', 'allowed', 0.02],
+    ['seven_day', 'allowed_warning', 0.83],
+    ['seven_day_overage_included', 'allowed', 0.1],
+  ]);
+  // Over the cap: the top-level status goes to the triggering window, utilization caps at 1.
+  assert.equal(c.status, 'rejected');
+  assert.equal(c.utilization, 1);
+  assert.deepEqual(c.windows.map((w) => [w.type, w.status, w.utilization]), [
+    ['five_hour', 'rejected', 1],
+    ['seven_day', 'allowed', 0.71],
+  ]);
+});
+
+test('parseRateLimitEvent skips broken unifiedWindows entries', () => {
+  const ev = (info) => ({ type: 'rate_limit_event', rate_limit_info: info });
+  assert.equal(parseRateLimitEvent(ev({ status: 'allowed', unifiedWindows: {} })), null);
+  assert.equal(parseRateLimitEvent(ev({ status: 'allowed', unifiedWindows: { five_hour: 'x', seven_day: {} } })), null);
+  const r = parseRateLimitEvent(ev({ status: 'allowed', unifiedWindows: { five_hour: { utilization: 'lots' }, seven_day: { utilization: 0.5, status: 'odd' } } }));
+  assert.deepEqual(r.windows, [{ type: 'seven_day', status: 'allowed', resetsAt: null, utilization: 0.5 }]);
+  assert.equal(parseRateLimitEvent(ev({ status: 'allowed', rateLimitType: 'five_hour', utilization: 1.2 })).utilization, 1, 'just over the cap is a fraction');
+});
+
+test('Claude: unifiedWindows fill the weekly bar, not just the 5-hour one', () => {
+  const now = clock();
+  const u = store(now);
+  const record = (l) => u.recordClaudeRateLimit(parseRateLimitEvent(JSON.parse(l)));
+
+  record(UNIFIED_LINES[0]);
+  let snap = u.snapshot(CLAUDE);
+  assert.deepEqual(snap.windows.map((w) => [w.id, w.used, w.resetsAt, w.status]), [
+    ['five_hour', 0.37, RESET_5H * 1000, 'ok'],
+    ['seven_day', 0.64, RESET_7D * 1000, 'ok'],
+  ]);
+  assert.equal(snap.updatedAt, T0);
+
+  now.add(60 * 1000);
+  record(UNIFIED_LINES[1]);
+  snap = u.snapshot(CLAUDE);
+  assert.deepEqual(snap.windows.map((w) => [w.id, w.used, w.status]), [
+    ['five_hour', 0.02, 'ok'],
+    ['seven_day', 0.83, 'warning'],
+  ]);
+
+  record(UNIFIED_LINES[2]);
+  snap = u.snapshot(CLAUDE);
+  assert.deepEqual(snap.windows.map((w) => [w.id, w.used, w.status]), [
+    ['five_hour', 1, 'limited'],
+    ['seven_day', 0.71, 'ok'],
+  ]);
+
+  // The weekly bar outlives the 5-hour reset.
+  now.set(RESET_5H * 1000 + 1);
+  snap = u.snapshot(CLAUDE);
+  assert.deepEqual(snap.windows.map((w) => w.status), ['unknown', 'ok']);
+});
+
+test('Claude: a rejected weekly window alone does not mark Claude limited', () => {
+  const dir = tmpDir();
+  const u = store(clock(), dir);
+  const line = `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"utilization":1,"resetsAt":${RESET_7D},"status":"rejected"}}}}`;
+  u.recordClaudeRateLimit(parseRateLimitEvent(JSON.parse(line)));
+  assert.equal(u.snapshot(CLAUDE).windows[1].status, 'limited', 'the bar shows the window is full');
+  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'usage.json'), 'utf8'));
+  assert.deepEqual(onDisk.limitedUntil, {}, 'but requests are only refused when the top-level status says so');
+});
+
+test('the Claude provider fills both bars from current CLI output', async () => {
+  const u = store();
+  const lines = [CLI_LINES[0], UNIFIED_LINES[0], CLI_LINES[4], CLI_LINES[5]];
+  const p = createClaudeProvider({
+    env: {},
+    settings: { get: () => ({ claudeModel: 'haiku' }) },
+    spawn: fakeSpawn(lines),
+    find: () => '/bin/claude',
+    shrinkImage: (i) => i,
+    makeTempDir: () => '/tmp/x',
+    removeDir: () => {},
+    logger: quietLogger(),
+    usage: u,
+  });
+  await p.generate({ messages: [{ role: 'user', text: 'hi' }], answerStyle: 'both' });
+  assert.deepEqual(u.snapshot(CLAUDE).windows.map((w) => w.used), [0.37, 0.64]);
 });
 
 test('the Claude stream parser passes each rate limit on as it arrives', () => {
