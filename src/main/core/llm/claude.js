@@ -25,8 +25,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
-const { CLAUDE_MODELS } = require('../../../shared/contracts');
+const { CLAUDE_MODELS, PROVIDERS } = require('../../../shared/contracts');
 const { systemInstruction, parseReply, applyStyle, assistantTurnText } = require('./prompt');
+const { parseRateLimitEvent } = require('../usage');
 const { createImageShrinker, electronNativeImage } = require('./images');
 
 const LABEL = 'Claude (Pro)';
@@ -251,16 +252,28 @@ function friendlyError(raw) {
   return `Claude error: ${msg.slice(0, 300) || 'the claude command failed with no message.'}`;
 }
 
-/** Line-by-line stream-json reader: keeps the init model, last assistant model and the result. */
-function createStreamParser() {
+/**
+ * Line-by-line stream-json reader: keeps the init model, last assistant model
+ * and the result, and passes each rate_limit_event to onRateLimit as it arrives.
+ * @param {{ onRateLimit?: (info: ReturnType<typeof parseRateLimitEvent>) => void }} [opts]
+ */
+function createStreamParser({ onRateLimit } = {}) {
   let buf = '';
-  const state = { initModel: null, model: null, result: null };
+  const state = { initModel: null, model: null, result: null, rateLimits: [] };
   function line(l) {
     if (!l.trim()) return;
     let ev;
     try { ev = JSON.parse(l); } catch { return; }
     if (!ev || typeof ev !== 'object') return;
-    if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.model === 'string') state.initModel = ev.model;
+    if (ev.type === 'rate_limit_event') {
+      const info = parseRateLimitEvent(ev);
+      if (info) {
+        state.rateLimits.push(info);
+        if (onRateLimit) {
+          try { onRateLimit(info); } catch { /* the meter must never break a reply */ }
+        }
+      }
+    } else if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.model === 'string') state.initModel = ev.model;
     else if (ev.type === 'assistant' && ev.message && typeof ev.message.model === 'string' && !ev.message.model.startsWith('<')) state.model = ev.message.model;
     else if (ev.type === 'result') state.result = ev;
   }
@@ -318,6 +331,7 @@ function replyFromResult(state, answerStyle, alias) {
  *   deadlineMs?: number,
  *   killGraceMs?: number,
  *   logger?: Pick<Console,'warn'>,
+ *   usage?: { recordRequest: Function, addTokens: Function, recordClaudeRateLimit: Function } | null,
  * }} opts
  */
 function createClaudeProvider({
@@ -331,7 +345,12 @@ function createClaudeProvider({
   deadlineMs = DEADLINE_MS,
   killGraceMs = KILL_GRACE_MS,
   logger = console,
+  usage = null,
 } = {}) {
+  const meter = (fn) => {
+    if (!usage) return;
+    try { fn(usage); } catch (err) { logger.warn(`[core] usage update failed: ${err.message}`); }
+  };
   const currentModel = () => {
     const m = settings && typeof settings.get === 'function' ? settings.get().claudeModel : null;
     return Object.values(CLAUDE_MODELS).includes(m) ? m : DEFAULT_MODEL;
@@ -352,7 +371,7 @@ function createClaudeProvider({
         return;
       }
 
-      const parser = createStreamParser();
+      const parser = createStreamParser({ onRateLimit: (info) => meter((u) => u.recordClaudeRateLimit(info)) });
       let stderr = '';
       let settled = false;
       let killTimer = null;
@@ -425,6 +444,11 @@ function createClaudeProvider({
       const model = currentModel();
       const input = { type: 'user', message: { role: 'user', content } };
       const state = await run(bin, buildArgs({ model, answerStyle }), input, signal);
+      const tokens = state.result && state.result.usage && typeof state.result.usage === 'object' ? state.result.usage : {};
+      meter((u) => u.recordRequest(PROVIDERS.CLAUDE_PRO, {
+        inputTokens: (tokens.input_tokens || 0) + (tokens.cache_creation_input_tokens || 0) + (tokens.cache_read_input_tokens || 0),
+        outputTokens: tokens.output_tokens || 0,
+      }));
       if (signal && signal.aborted) throw stoppedError();
       return replyFromResult(state, answerStyle, model);
     },

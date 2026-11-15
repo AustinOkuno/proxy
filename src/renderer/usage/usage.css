@@ -1,2 +1,40 @@
 /* OWNER: Worker 2 (UI phase). Structural CSS for the usage meter.
    Colors, fonts, shadows and radii only through var(--...) tokens (SPEC 9.5.1). */
+
+.usage-slot[hidden] { display: none; }
+.usage-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-small, 11px);
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.usage-item { display: inline-flex; align-items: center; gap: calc(var(--gap) / 3); }
+.usage-bar {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+}
+.usage-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--success, var(--accent)); }
+.usage-bar.warning .usage-fill { background: var(--warning); }
+.usage-bar.limited { border-color: var(--danger); }
+.usage-bar.limited .usage-fill { background: var(--danger); }
+.usage-bar.no-fill { opacity: 0.6; }
+.usage-bar.limited.no-fill { opacity: 1; background: var(--danger-bg); }
+.usage-value { min-width: 2.5em; }
+.usage-note { font-style: italic; }
+
+.usage-settings .field-label { display: block; margin: var(--gap) 0 calc(var(--gap) / 3); }
+.usage-settings input[type='number'] { width: 10em; }
+.usage-table { border-collapse: collapse; margin-top: calc(var(--gap) / 2); }
+.usage-table th, .usage-table td { text-align: left; padding: 2px var(--gap) 2px 0; font-weight: normal; }
+.usage-table th { color: var(--text-muted); }
