@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateAccelerator, keyEventToAccelerator, duplicateHotkeys } from '../../src/renderer/lib/accelerator.js';
+import { validateAccelerator, keyEventToAccelerator, duplicateHotkeys, hotkeyWarning } from '../../src/renderer/lib/accelerator.js';
 
 test('empty accelerator means disabled', () => {
   assert.deepEqual(validateAccelerator(''), { ok: true, value: '' });
@@ -44,4 +44,14 @@ test('duplicateHotkeys finds clashes case-insensitively and ignores empty', () =
     [['a', 'b']],
   );
   assert.deepEqual(duplicateHotkeys({ a: 'Super+S', b: 'Super+A' }), []);
+});
+
+test('hotkeyWarning flags Super combos and known Cinnamon shortcuts, not the defaults', () => {
+  assert.match(hotkeyWarning('Super+Shift+S'), /Super/);
+  assert.match(hotkeyWarning('meta+a'), /Super/);
+  assert.match(hotkeyWarning('ctrl+alt+t'), /Cinnamon already uses/);
+  assert.match(hotkeyWarning('PrintScreen'), /Cinnamon already uses/);
+  for (const ok of ['Ctrl+Alt+S', 'Ctrl+Alt+A', 'Ctrl+Alt+P', 'Pause', '', 'Ctrl+Banana']) {
+    assert.equal(hotkeyWarning(ok), '', ok);
+  }
 });

@@ -27,7 +27,7 @@ test('update validates enums, drops unknown keys, deep-merges hotkeys and persis
   assert.equal(out.answerStyle, 'both');
   assert.equal(out.bogus, undefined);
   assert.equal(out.hotkeys.regionSnip, 'Ctrl+Alt+S');
-  assert.equal(out.hotkeys.fullScreenshot, 'Super+Shift+A');
+  assert.equal(out.hotkeys.fullScreenshot, 'Ctrl+Alt+A');
   assert.ok(log.warnings.length > 0);
 
   const again = createSettingsStore({ dataDir: dir, logger: quietLogger() });
@@ -61,7 +61,7 @@ test('onChange fires after a real change, not for no-ops; unsubscribe works', ()
 test('get() returns a copy', () => {
   const s = createSettingsStore({ dataDir: tmpDir(), logger: quietLogger() });
   s.get().hotkeys.regionSnip = 'X';
-  assert.equal(s.get().hotkeys.regionSnip, 'Super+Shift+S');
+  assert.equal(s.get().hotkeys.regionSnip, 'Ctrl+Alt+S');
 });
 
 test('corrupt settings.json falls back to defaults without throwing', () => {
@@ -87,4 +87,35 @@ test('provider and claudeModel accept the Claude (Pro) values and reject others'
   out = s.update({ provider: 'openai', claudeModel: 'gpt-9' });
   assert.equal(out.provider, 'claude-pro');
   assert.equal(out.claudeModel, 'opus');
+});
+
+test('v1 settings on the old Super+Shift defaults move to the new defaults; custom hotkeys stay', () => {
+  const dir = tmpDir();
+  fs.writeFileSync(
+    path.join(dir, 'settings.json'),
+    JSON.stringify({
+      version: 1,
+      hotkeys: { regionSnip: 'Super+Shift+S', fullScreenshot: 'Alt+F9', togglePanel: 'super+shift+p' },
+      sendMode: 'wait',
+    }),
+  );
+  const s = createSettingsStore({ dataDir: dir, logger: quietLogger() });
+  const got = s.get();
+  assert.deepEqual(got.hotkeys, { regionSnip: 'Ctrl+Alt+S', fullScreenshot: 'Alt+F9', togglePanel: 'Ctrl+Alt+P' });
+  assert.equal(got.sendMode, 'wait');
+  assert.equal(got.version, 2);
+  // Saved right away, so the next start doesn't migrate again.
+  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+  assert.equal(onDisk.version, 2);
+  assert.equal(onDisk.hotkeys.regionSnip, 'Ctrl+Alt+S');
+});
+
+test('v2 settings keep a Super hotkey the user picked on purpose', () => {
+  const dir = tmpDir();
+  fs.writeFileSync(
+    path.join(dir, 'settings.json'),
+    JSON.stringify({ version: 2, hotkeys: { regionSnip: 'Super+Shift+S' } }),
+  );
+  const s = createSettingsStore({ dataDir: dir, logger: quietLogger() });
+  assert.equal(s.get().hotkeys.regionSnip, 'Super+Shift+S');
 });

@@ -68,11 +68,11 @@ How it works: for each message Proxy runs `claude -p` in an empty temporary fold
 
 | Action | Keys |
 |---|---|
-| Region snip | `Super+Shift+S` |
-| Full screenshot | `Super+Shift+A` |
-| Show/hide panel (when visibility is "toggle") | `Super+Shift+P` |
+| Region snip | `Ctrl+Alt+S` |
+| Full screenshot | `Ctrl+Alt+A` |
+| Show/hide panel (when visibility is "toggle") | `Ctrl+Alt+P` |
 
-**Super** is the Windows key. All hotkeys can be changed in the app's settings. If a hotkey doesn't work, Cinnamon may already use it: check *System Settings → Keyboard → Shortcuts* and either free it there or pick another key in Proxy.
+All hotkeys can be changed in the app's settings (gear button). Avoid **Super** (the Windows key) on Cinnamon: pressing it starts the menu's key grab, so Super shortcuts reach Proxy only some of the time, and `Super+S` opens the sound applet. Older installs still on the old `Super+Shift+…` defaults are moved to the new ones automatically. If a hotkey doesn't work, Cinnamon may already use it: check *System Settings → Keyboard → Shortcuts* and either free it there or pick another key in Proxy.
 
 ## Where things are stored
 

@@ -12,6 +12,7 @@ const {
   PROVIDERS,
   CLAUDE_MODELS,
   SETTINGS_VERSION,
+  LEGACY_HOTKEY_DEFAULTS,
   defaultSettings,
 } = require('../../shared/contracts');
 const { readJson, writeJsonAtomic, quarantine } = require('./fsutil');
@@ -89,6 +90,30 @@ function mergeSettings(base, clean) {
   };
 }
 
+/**
+ * Bring a settings file from an older version up to date. v1 -> v2: hotkeys
+ * still on the old Super+Shift defaults move to the new defaults; hotkeys the
+ * user changed are kept. Returns the names that were moved.
+ * @param {any} raw  parsed settings.json (mutated)
+ * @returns {string[]}
+ */
+function migrateSettings(raw) {
+  const moved = [];
+  if (!isPlainObject(raw)) return moved;
+  const version = typeof raw.version === 'number' ? raw.version : 1;
+  if (version < 2 && isPlainObject(raw.hotkeys)) {
+    const defaults = defaultSettings().hotkeys;
+    for (const [name, old] of Object.entries(LEGACY_HOTKEY_DEFAULTS)) {
+      const cur = raw.hotkeys[name];
+      if (typeof cur === 'string' && cur.replace(/\s+/g, '').toLowerCase() === old.toLowerCase()) {
+        raw.hotkeys[name] = defaults[name];
+        moved.push(name);
+      }
+    }
+  }
+  return moved;
+}
+
 const copy = (v) => JSON.parse(JSON.stringify(v));
 
 /**
@@ -99,10 +124,16 @@ function createSettingsStore({ dataDir, logger = console }) {
   let current = defaultSettings();
 
   const loaded = readJson(file);
+  let migrated = false;
   if (loaded.ok) {
+    const moved = migrateSettings(loaded.value);
     const { clean, dropped } = sanitizePatch(loaded.value);
     current = mergeSettings(current, clean);
     if (dropped.length) logger.warn(`[core] settings.json: ignored invalid entries: ${dropped.join(', ')}`);
+    if (moved.length) {
+      logger.warn(`[core] settings.json: moved old Super+Shift hotkeys to new defaults: ${moved.join(', ')}`);
+    }
+    migrated = loaded.value && loaded.value.version !== SETTINGS_VERSION;
   } else if (!loaded.missing) {
     logger.warn(`[core] settings.json unreadable, using defaults: ${loaded.error && loaded.error.message}`);
     quarantine(file);
@@ -117,6 +148,8 @@ function createSettingsStore({ dataDir, logger = console }) {
       logger.warn(`[core] could not save settings: ${err.message}`);
     }
   }
+
+  if (migrated) persist();
 
   return {
     get: () => copy(current),
@@ -146,4 +179,4 @@ function createSettingsStore({ dataDir, logger = console }) {
   };
 }
 
-module.exports = { createSettingsStore, sanitizePatch, mergeSettings };
+module.exports = { createSettingsStore, sanitizePatch, mergeSettings, migrateSettings };

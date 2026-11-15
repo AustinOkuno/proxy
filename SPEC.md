@@ -9,10 +9,10 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 ## 1. Features (v0)
 
 ### Capture
-- **Region snip**, default `Super+Shift+S` (Super is the Windows key). The screen dims, you drag a box, the cropped image goes into the chat. `Esc` cancels.
-- **Full screenshot**, default `Super+Shift+A`. Captures the display the mouse is on.
+- **Region snip**, default `Ctrl+Alt+S`. The screen dims, you drag a box, the cropped image goes into the chat. `Esc` cancels.
+- **Full screenshot**, default `Ctrl+Alt+A`. Captures the display the mouse is on.
 - Both can also be triggered from buttons in the panel.
-- All hotkeys are configurable in settings and re-register live when changed.
+- All hotkeys are configurable in settings and re-register live when changed. Defaults avoid Super: on Cinnamon the menu grabs the Super key on press, so Super combos fire only sometimes, and `Super+S` opens the sound applet. Settings v1 files still on the old `Super+Shift+S/A/P` defaults are moved to the new defaults on load (settings v2); hotkeys the user changed are kept. The settings screen warns (without blocking) about Super combos and known Cinnamon shortcuts.
 
 ### Send mode (setting)
 - `instant` (default): the capture is sent to the model right away with no text.
@@ -25,7 +25,7 @@ Proxy is a desktop assistant for Linux Mint Cinnamon (X11). You press a hotkey, 
 - **Visibility** (setting):
   - `always` (default): panel is always shown.
   - `hidden-until-capture`: hidden at start; shown when a capture hotkey fires. The panel's hide button hides it again.
-  - `toggle`: the `togglePanel` hotkey (default `Super+Shift+P`) shows and hides it.
+  - `toggle`: the `togglePanel` hotkey (default `Ctrl+Alt+P`) shows and hides it.
 
 ### Chat
 - Normal chat with follow-ups. Each request sends the whole session's history (text and images) to the model.
@@ -243,7 +243,7 @@ Channel names live in `src/shared/contracts.js` (`INVOKE`, `EVENTS`). The render
 | `history:changed` | none (re-fetch the chat list and folders) | W2 |
 
 ### Flow: snip with `sendMode = instant`
-1. User presses `Super+Shift+S` → W1 overlay → crop → `capture:ready` to renderer.
+1. User presses `Ctrl+Alt+S` → W1 overlay → crop → `capture:ready` to renderer.
 2. Renderer (W3) sees `sendMode === 'instant'` → `proxy.chat.send({ sessionId: current, text: '', images: [image] })`, showing a pending bubble.
 3. W2 appends the user message, calls Gemini, appends the assistant message, emits `history:changed`, returns `ChatSendResult`.
 4. Renderer shows answer/explanation per `answerStyle` with copy buttons.
