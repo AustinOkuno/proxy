@@ -92,7 +92,7 @@ test('registerIpc handles every Worker 2 channel and emits events', async () => 
 
   for (const ch of ['CHAT_SEND', 'HISTORY_LIST', 'HISTORY_GET', 'HISTORY_CREATE', 'HISTORY_RENAME',
     'HISTORY_DELETE', 'HISTORY_MOVE', 'FOLDER_LIST', 'FOLDER_CREATE', 'FOLDER_UPDATE', 'FOLDER_DELETE',
-    'SETTINGS_GET', 'SETTINGS_UPDATE']) {
+    'SETTINGS_GET', 'SETTINGS_UPDATE', 'HISTORY_SET_PINNED', 'HISTORY_SEARCH']) {
     assert.equal(typeof handlers[INVOKE[ch]], 'function', ch);
   }
 
@@ -189,4 +189,18 @@ test('registerIpc handles chat:cancel', async () => {
   const handlers = {};
   core.registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, { sendToPanel() {} });
   assert.deepEqual(await handlers[INVOKE.CHAT_CANCEL]({}, { requestId: 'nope' }), { ok: true, cancelled: 0 });
+});
+
+test('pin and search IPC', async () => {
+  const { core } = await makeCore(() => ({ answer: 'Water is H2O', explanation: '' }));
+  const handlers = {};
+  core.registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, { sendToPanel: () => {} });
+  const s = await handlers[INVOKE.HISTORY_CREATE]({});
+  await handlers[INVOKE.CHAT_SEND]({}, { sessionId: s.id, text: 'what is water', images: [] });
+  const pinned = await handlers[INVOKE.HISTORY_SET_PINNED]({}, { id: s.id, pinned: true });
+  assert.equal(pinned.pinned, true);
+  const hits = await handlers[INVOKE.HISTORY_SEARCH]({}, { query: 'water', limit: 5 });
+  assert.equal(hits.length, 3, 'title, question and answer');
+  const f = await handlers[INVOKE.FOLDER_CREATE]({}, { name: 'Chem' });
+  assert.equal((await handlers[INVOKE.FOLDER_UPDATE]({}, { id: f.id, pinned: true })).pinned, true);
 });

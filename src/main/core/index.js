@@ -41,6 +41,8 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
     deleteSession: historyStore.deleteSession,
     appendMessage: historyStore.appendMessage,
     moveSession: historyStore.moveSession,
+    setPinned: historyStore.setPinned,
+    search: historyStore.search,
     listFolders: historyStore.listFolders,
     createFolder: historyStore.createFolder,
     updateFolder: historyStore.updateFolder,
@@ -70,7 +72,10 @@ async function createCore({ dataDir, env = {}, logger = console, providerFactory
     ipcMain.handle(INVOKE.FOLDER_UPDATE, (_e, arg) => history.updateFolder(idOf(arg), {
       ...(arg && 'name' in arg ? { name: arg.name } : {}),
       ...(arg && 'collapsed' in arg ? { collapsed: arg.collapsed } : {}),
+      ...(arg && 'pinned' in arg ? { pinned: arg.pinned } : {}),
     }));
+    ipcMain.handle(INVOKE.HISTORY_SET_PINNED, (_e, arg) => history.setPinned(idOf(arg), !!(arg && arg.pinned)));
+    ipcMain.handle(INVOKE.HISTORY_SEARCH, (_e, arg) => history.search(arg && arg.query, { limit: arg && arg.limit }));
     ipcMain.handle(INVOKE.FOLDER_DELETE, (_e, arg) => {
       history.deleteFolder(idOf(arg));
       return { ok: true };

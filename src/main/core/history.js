@@ -23,6 +23,11 @@ const RENAME_MAX = 200;
 const FOLDER_DEFAULT_NAME = 'New folder';
 const FOLDER_NAME_MAX = 80;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const SEARCH_DEFAULT_LIMIT = 50;
+const SEARCH_MAX_LIMIT = 200;
+const SEARCH_QUERY_MAX = 200;
+const SNIPPET_BEFORE = 40;
+const SNIPPET_AFTER = 80;
 
 const newId = () => crypto.randomUUID();
 const copy = (v) => JSON.parse(JSON.stringify(v));
@@ -45,7 +50,41 @@ function summaryOf(s) {
     updatedAt: s.updatedAt,
     messageCount: s.messages.length,
     folderId: typeof s.folderId === 'string' ? s.folderId : null,
+    pinned: s.pinned === true,
+    pinnedAt: s.pinned === true && Number.isFinite(s.pinnedAt) ? s.pinnedAt : null,
   };
+}
+
+/** Pinned first (most recently pinned first), then `rest` order. Stable. */
+function pinnedFirst(items, rest) {
+  return [...items].sort((a, b) => {
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    if (a.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+    return rest(a, b);
+  });
+}
+
+/**
+ * A short piece of `text` around [start, start+length), on one line.
+ * @returns {{ snippet: string, matchStart: number }}
+ */
+function makeSnippet(text, start, length) {
+  let from = Math.max(0, start - SNIPPET_BEFORE);
+  let to = Math.min(text.length, start + length + SNIPPET_AFTER);
+  // Start and end on a word boundary when one is close.
+  if (from > 0) {
+    const sp = text.lastIndexOf(' ', start);
+    if (sp > from && sp < start) from = sp + 1;
+  }
+  if (to < text.length) {
+    const sp = text.indexOf(' ', start + length);
+    if (sp > 0 && sp < to) to = sp;
+  }
+  const lead = from > 0 ? '…' : '';
+  const tail = to < text.length ? '…' : '';
+  // Newlines become spaces; same length, so indexes don't move.
+  const body = text.slice(from, to).replace(/[\r\n\t]/g, ' ');
+  return { snippet: `${lead}${body}${tail}`, matchStart: start - from + lead.length };
 }
 
 const cleanName = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
@@ -140,6 +179,8 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
           updatedAt: Number(s.updatedAt) || 0,
           messageCount: Number(s.messageCount) || 0,
           folderId: typeof s.folderId === 'string' ? s.folderId : null,
+          pinned: s.pinned === true,
+          pinnedAt: s.pinned === true && Number.isFinite(s.pinnedAt) ? s.pinnedAt : null,
         });
       }
     }
@@ -170,6 +211,8 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
           name: cleanName(f.name, FOLDER_NAME_MAX) || FOLDER_DEFAULT_NAME,
           createdAt: Number(f.createdAt) || 0,
           collapsed: f.collapsed === true,
+          pinned: f.pinned === true,
+          pinnedAt: f.pinned === true && Number.isFinite(f.pinnedAt) ? f.pinnedAt : null,
         });
       }
     }
@@ -218,11 +261,60 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
   }
 
   return {
-    /** @returns {import('../../shared/contracts').SessionSummary[]} newest first */
+    /** @returns {import('../../shared/contracts').SessionSummary[]} pinned first (latest pin first), then newest first */
     listSessions() {
-      return [...summaries.values()]
-        .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
+      return pinnedFirst([...summaries.values()], (a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
         .map((s) => ({ ...s }));
+    },
+
+    /** Pin or unpin a chat. Does not change updatedAt. */
+    setPinned(id, pinned) {
+      const s = requireSession(id);
+      const want = pinned === true;
+      if ((s.pinned === true) !== want) {
+        s.pinned = want;
+        s.pinnedAt = want ? tick() : null;
+        save(s);
+      }
+      return summaryOf(s);
+    },
+
+    /**
+     * Case-insensitive search over chat titles, user text, answers and
+     * explanations. One hit per matching message (and one for the title),
+     * newest chats first and newest messages first inside a chat.
+     * @param {string} query
+     * @param {{ limit?: number }} [opts]
+     * @returns {import('../../shared/contracts').SearchHit[]}
+     */
+    search(query, opts = {}) {
+      const q = String(query == null ? '' : query).replace(/\s+/g, ' ').trim().slice(0, SEARCH_QUERY_MAX).toLowerCase();
+      if (!q) return [];
+      const rawLimit = opts && Number.isFinite(opts.limit) ? Math.floor(opts.limit) : SEARCH_DEFAULT_LIMIT;
+      const limit = Math.max(1, Math.min(SEARCH_MAX_LIMIT, rawLimit));
+      const hits = [];
+      const order = [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt);
+      for (const sum of order) {
+        const s = getStored(sum.id);
+        if (!s) continue;
+        const base = { sessionId: s.id, title: s.title, folderId: summaryOf(s).folderId, updatedAt: s.updatedAt };
+        const tryText = (text, messageId) => {
+          if (typeof text !== 'string' || !text) return false;
+          const i = text.toLowerCase().indexOf(q);
+          if (i < 0) return false;
+          hits.push({ ...base, messageId, ...makeSnippet(text, i, q.length), matchLength: q.length });
+          return true;
+        };
+        tryText(s.title, null);
+        for (let k = s.messages.length - 1; k >= 0 && hits.length < limit; k -= 1) {
+          const m = s.messages[k];
+          if (!m || typeof m !== 'object') continue;
+          const fields = m.role === 'user' ? [m.text] : [m.answer, m.explanation];
+          fields.some((f) => tryText(f, m.id || null));
+        }
+        if (hits.length >= limit) break;
+      }
+      return hits.slice(0, limit);
     },
 
     getSession(id) {
@@ -282,9 +374,9 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
       return summaryOf(s);
     },
 
-    /** @returns {import('../../shared/contracts').Folder[]} in display order */
+    /** @returns {import('../../shared/contracts').Folder[]} pinned first (latest pin first), then creation order */
     listFolders() {
-      return [...folders.values()].map((f) => ({ ...f }));
+      return pinnedFirst([...folders.values()], () => 0).map((f) => ({ ...f }));
     },
 
     createFolder(name) {
@@ -293,6 +385,8 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
         name: cleanName(name, FOLDER_NAME_MAX) || FOLDER_DEFAULT_NAME,
         createdAt: tick(),
         collapsed: false,
+        pinned: false,
+        pinnedAt: null,
       };
       folders.set(f.id, f);
       writeFolders();
@@ -300,7 +394,7 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
       return { ...f };
     },
 
-    /** patch: { name?, collapsed? }. An empty name is ignored. */
+    /** patch: { name?, collapsed?, pinned? }. An empty name is ignored. */
     updateFolder(id, patch = {}) {
       const f = requireFolder(id);
       const p = patch && typeof patch === 'object' ? patch : {};
@@ -309,6 +403,10 @@ function createHistoryStore({ dataDir, logger = console, now = Date.now }) {
         if (name) f.name = name;
       }
       if ('collapsed' in p) f.collapsed = p.collapsed === true;
+      if ('pinned' in p && (p.pinned === true) !== f.pinned) {
+        f.pinned = p.pinned === true;
+        f.pinnedAt = f.pinned ? tick() : null;
+      }
       writeFolders();
       emit();
       return { ...f };

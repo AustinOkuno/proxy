@@ -197,3 +197,133 @@ test('folder changes fire onChange', () => {
   h.deleteFolder(f.id);
   assert.equal(n, 3);
 });
+
+// ---------------------------------------------------------------------------
+// Pins and search (SPEC 9.5.5)
+// ---------------------------------------------------------------------------
+
+test('pinned chats list first, latest pin first, and pinning keeps updatedAt', () => {
+  const h = store();
+  const a = h.createSession();
+  const b = h.createSession();
+  const c = h.createSession();
+  const before = h.listSessions().find((s) => s.id === a.id).updatedAt;
+  const pa = h.setPinned(a.id, true);
+  assert.equal(pa.pinned, true);
+  assert.ok(Number.isFinite(pa.pinnedAt));
+  assert.equal(pa.updatedAt, before);
+  h.setPinned(b.id, true);
+  assert.deepEqual(h.listSessions().map((s) => s.id), [b.id, a.id, c.id]);
+  const un = h.setPinned(b.id, false);
+  assert.equal(un.pinned, false);
+  assert.equal(un.pinnedAt, null);
+  assert.deepEqual(h.listSessions().map((s) => s.id), [a.id, c.id, b.id]);
+  assert.equal(h.listSessions().find((s) => s.id === c.id).pinned, false);
+});
+
+test('pinning again is a no-op; unknown chats throw', () => {
+  const h = store();
+  const a = h.createSession();
+  const first = h.setPinned(a.id, true).pinnedAt;
+  assert.equal(h.setPinned(a.id, true).pinnedAt, first);
+  assert.throws(() => h.setPinned('nope', true), /not found/);
+});
+
+test('pins survive a restart, including a rebuilt index', () => {
+  const dir = tmpDir();
+  const h = store(dir);
+  const a = h.createSession();
+  h.createSession();
+  h.setPinned(a.id, true);
+  const f = h.createFolder('Chem');
+  h.updateFolder(f.id, { pinned: true });
+  let again = store(dir);
+  assert.equal(again.listSessions()[0].id, a.id);
+  assert.equal(again.listSessions()[0].pinned, true);
+  assert.equal(again.listFolders()[0].pinned, true);
+  fs.unlinkSync(path.join(dir, 'history', 'index.json'));
+  again = store(dir);
+  assert.equal(again.listSessions()[0].id, a.id);
+  assert.equal(again.listSessions()[0].pinned, true);
+});
+
+test('pinned folders list first (latest pin first), others in creation order', () => {
+  const h = store();
+  const f1 = h.createFolder('one');
+  const f2 = h.createFolder('two');
+  const f3 = h.createFolder('three');
+  assert.equal(h.listFolders()[0].pinned, false);
+  h.updateFolder(f3.id, { pinned: true });
+  h.updateFolder(f2.id, { pinned: true });
+  assert.deepEqual(h.listFolders().map((f) => f.name), ['two', 'three', 'one']);
+  const un = h.updateFolder(f2.id, { pinned: false });
+  assert.equal(un.pinnedAt, null);
+  assert.deepEqual(h.listFolders().map((f) => f.name), ['three', 'one', 'two']);
+  assert.equal(h.updateFolder(f1.id, { name: 'uno' }).pinned, false);
+});
+
+function seedSearch(h) {
+  const a = h.createSession();
+  h.appendMessage(a.id, { role: 'user', text: 'What is the molar mass of water?' });
+  h.appendMessage(a.id, { role: 'assistant', answer: '18.02 g/mol', explanation: 'Add 2 x 1.008 for H and 16.00 for O. Water is H2O.' });
+  const b = h.createSession();
+  h.appendMessage(b.id, { role: 'user', text: 'Balance hydrogen and oxygen to make WATER' });
+  h.appendMessage(b.id, { role: 'assistant', answer: '$\\ce{2H2 + O2 -> 2H2O}$', explanation: '' });
+  h.appendMessage(b.id, { role: 'assistant', error: 'water error text should not match' });
+  h.renameSession(b.id, 'Water reaction');
+  return { a, b };
+}
+
+test('search is case-insensitive over titles, user text, answers and explanations, newest first', () => {
+  const h = store();
+  const { a, b } = seedSearch(h);
+  const hits = h.search('WaTeR');
+  // b is newer: title hit, then its messages newest first; then a (auto title from its question).
+  assert.deepEqual(hits.map((x) => [x.sessionId, x.messageId === null ? 'title' : 'msg']),
+    [[b.id, 'title'], [b.id, 'msg'], [a.id, 'title'], [a.id, 'msg'], [a.id, 'msg']]);
+  assert.equal(hits[0].title, 'Water reaction');
+  for (const hit of hits) {
+    assert.equal(hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength).toLowerCase(), 'water');
+    assert.ok(Number.isFinite(hit.updatedAt));
+    assert.ok('folderId' in hit);
+  }
+  // The explanation matched for a's assistant message (answer didn't); one hit per message.
+  const aMsgs = h.getSession(a.id).messages;
+  assert.deepEqual(hits.filter((x) => x.sessionId === a.id).map((x) => x.messageId), [null, aMsgs[1].id, aMsgs[0].id]);
+});
+
+test('search finds answers, ignores errors, respects limit, and empty queries return nothing', () => {
+  const h = store();
+  const { b } = seedSearch(h);
+  assert.equal(h.search('2H2O')[0].sessionId, b.id);
+  assert.equal(h.search('error text').length, 0);
+  assert.equal(h.search('water', { limit: 2 }).length, 2);
+  assert.equal(h.search('water', { limit: 0 }).length, 1);
+  assert.equal(h.search('water', { limit: 1e9 }).length, 5);
+  assert.deepEqual(h.search(''), []);
+  assert.deepEqual(h.search('   '), []);
+  assert.deepEqual(h.search(null), []);
+  assert.deepEqual(h.search('zebra'), []);
+});
+
+test('search snippets are short, one line, and marked with ellipses when cut', () => {
+  const h = store();
+  const s = h.createSession();
+  const long = `${'alpha '.repeat(30)}needle\nin the\nhaystack ${'omega '.repeat(30)}`;
+  h.appendMessage(s.id, { role: 'user', text: long });
+  const [hit] = h.search('needle');
+  assert.ok(hit.snippet.startsWith('…'));
+  assert.ok(hit.snippet.endsWith('…'));
+  assert.ok(!/\n/.test(hit.snippet));
+  assert.ok(hit.snippet.length < 140);
+  assert.equal(hit.snippet.substr(hit.matchStart, hit.matchLength), 'needle');
+});
+
+test('search reports the folder a chat is in', () => {
+  const h = store();
+  const s = h.createSession();
+  h.appendMessage(s.id, { role: 'user', text: 'stoichiometry' });
+  const f = h.createFolder('Chem');
+  h.moveSession(s.id, f.id);
+  assert.equal(h.search('stoich')[0].folderId, f.id);
+});
