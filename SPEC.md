@@ -423,7 +423,7 @@ hotkeys: { ...existing, focusPanel: 'Ctrl+Alt+Space' },
 ```
 - `settings.update` merges `appearance`, `panel` and `usage` one level deep, `appearance.fonts` per level, `keymap` per key, and replaces arrays. Invalid values are dropped as today.
 - **W2's first PR** makes `core/settings.js` validate these keys (it drops unknown keys today, so nothing new persists until it lands). `SETTINGS_LIMITS` in contracts holds the ranges and max lengths so the validation and the UI agree.
-- **Versioning:** `SETTINGS_VERSION` is 3. A v2 file needs no data moved: it loads with the new keys filled from the defaults and is saved back as v3. `hotkeys.focusPanel` is still not in `DEFAULT_SETTINGS` because W2's v1-migration test lists the exact hotkeys; the shell and the settings form use `Ctrl+Alt+Space` when it is missing, and the lead adds the default once that test reads the defaults instead.
+- **Versioning:** `SETTINGS_VERSION` is 3. A v2 file needs no data moved: it loads with the new keys filled from the defaults and is saved back as v3. `hotkeys.focusPanel` defaults to `Ctrl+Alt+Space`.
 - v2 files load with the new defaults filled in; nothing the user set changes.
 
 #### 9.5.4 Usage meter: what we can honestly show

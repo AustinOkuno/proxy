@@ -332,8 +332,7 @@ const EVENTS = Object.freeze({
  * @property {string} regionSnip
  * @property {string} fullScreenshot
  * @property {string} togglePanel
- * @property {string} [focusPanel] UI phase: bring keyboard focus to the panel (SPEC 9.6); default
- *                                 'Ctrl+Alt+Space', added to the defaults with W1's command bar PR
+ * @property {string} focusPanel   UI phase: bring keyboard focus to the panel (SPEC 9.6)
  */
 
 /**
@@ -395,8 +394,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     regionSnip: 'Ctrl+Alt+S',
     fullScreenshot: 'Ctrl+Alt+A',
     togglePanel: 'Ctrl+Alt+P',
-    // focusPanel is not in the defaults yet: Worker 2's v1-migration test lists the
-    // exact hotkeys. The shell and settings form fall back to 'Ctrl+Alt+Space'.
+    focusPanel: 'Ctrl+Alt+Space',
   }),
   sendMode: SEND_MODES.INSTANT,
   panelVisibility: PANEL_VISIBILITY.ALWAYS,

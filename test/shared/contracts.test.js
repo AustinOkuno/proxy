@@ -92,4 +92,5 @@ test('UI phase: keymap and usage defaults', () => {
   const s = c.defaultSettings();
   assert.deepEqual(s.keymap, {});
   assert.deepEqual(s.usage, { show: true, geminiDailyRequests: null });
+  assert.equal(s.hotkeys.focusPanel, 'Ctrl+Alt+Space');
 });
