@@ -1,2 +1,104 @@
-/* OWNER: Worker 1 (UI phase). Structural CSS for the command bar and key hints.
-   Colors, fonts, shadows and radii only through var(--...) tokens (SPEC 9.5.1). */
+/* OWNER: Worker 1 (UI phase). Structural CSS for the frameless panel's drag
+   region, the command bar and key hints. Colors, fonts, shadows and radii only
+   through var(--...) tokens (SPEC 9.5.1); W3 styles the look in styles/app.css. */
+
+/* Frameless panel: the title bar moves the window; its controls stay clickable. */
+.drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.drag-region button,
+.drag-region input,
+.drag-region select,
+.drag-region textarea,
+.drag-region a,
+.drag-region [role="button"],
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Command bar: floats under the title bar, over the chat. */
+.cmdbar-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+.cmdbar {
+  pointer-events: auto;
+  position: absolute;
+  top: calc(var(--titlebar-height, var(--toolbar-height, 40px)) + var(--gap, 8px));
+  left: var(--gap, 8px);
+  right: var(--gap, 8px);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  box-shadow: 0 6px 24px var(--overlay-shadow);
+  font-family: var(--font-ui, var(--font));
+  font-size: var(--size-ui, var(--font-size-small, 12px));
+}
+.cmdbar[hidden] { display: none; }
+.cmdbar-input {
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--gap, 8px);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.cmdbar-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: calc(var(--gap, 8px) / 2) 0;
+  list-style: none;
+}
+.cmdbar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap, 8px);
+  padding: calc(var(--gap, 8px) / 2) var(--gap, 8px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cmdbar-item.active {
+  background: var(--surface-hover);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.cmdbar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmdbar-group {
+  flex: none;
+  color: var(--text-muted);
+}
+.cmdbar-empty {
+  padding: var(--gap, 8px);
+  color: var(--text-muted);
+}
+.cmdbar-empty[hidden] { display: none; }
+
+/* A shortcut hint, like "Ctrl+K". */
+.kbd {
+  flex: none;
+  padding: 0 calc(var(--gap, 8px) / 2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  color: var(--text-muted);
+  font-family: var(--font-code, var(--font-mono));
+  font-size: inherit;
+}

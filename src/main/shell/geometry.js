@@ -125,9 +125,18 @@ function pickScreenSource(sources, displays, display) {
  * @param {Rect[]} workAreas   display work areas (DIP)
  * @param {Rect} primaryWorkArea
  * @param {{width:number,height:number}} defaultSize
+ * @param {{ dock: string, margin?: number }} [dockPrefs]  when dock is a corner,
+ *        the panel opens docked there (keeping the saved size)
  * @returns {Rect}
  */
-function initialPanelBounds(saved, workAreas, primaryWorkArea, defaultSize) {
+function initialPanelBounds(saved, workAreas, primaryWorkArea, defaultSize, dockPrefs) {
+  if (dockPrefs && CORNERS.includes(dockPrefs.dock)) {
+    // Docked: keep the saved size, on the display the panel was last on.
+    const sizeOk = isRect(saved) && saved.width >= 200 && saved.height >= 200;
+    const size = sizeOk ? saved : defaultSize;
+    const wa = sizeOk ? workAreaFor(saved, workAreas, primaryWorkArea) : primaryWorkArea;
+    return dockBounds(dockPrefs.dock, size, wa, dockPrefs.margin || 0);
+  }
   const valid =
     saved &&
     [saved.x, saved.y, saved.width, saved.height].every(Number.isFinite) &&
@@ -149,6 +158,128 @@ function initialPanelBounds(saved, workAreas, primaryWorkArea, defaultSize) {
     width,
     height,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Docking and snapping (SPEC 9.2 item 5)
+// ---------------------------------------------------------------------------
+
+/** Corners the panel can dock to (PANEL_DOCKS values without 'free'). */
+const CORNERS = Object.freeze(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
+
+const isRect = (r) => !!r && [r.x, r.y, r.width, r.height].every(Number.isFinite);
+
+/**
+ * Bounds for a panel of `size` docked in `corner` of `workArea`, `margin` px
+ * from the edges. The size is shrunk to fit the work area if needed.
+ * @param {string} corner  one of CORNERS
+ * @param {{width:number,height:number}} size
+ * @param {Rect} workArea
+ * @param {number} margin
+ * @returns {Rect}
+ */
+function dockBounds(corner, size, workArea, margin = 0) {
+  const m = Math.max(0, Math.min(margin, Math.floor(workArea.width / 4), Math.floor(workArea.height / 4)));
+  const width = Math.max(1, Math.min(Math.round(size.width), workArea.width - 2 * m));
+  const height = Math.max(1, Math.min(Math.round(size.height), workArea.height - 2 * m));
+  const left = corner === 'top-left' || corner === 'bottom-left';
+  const top = corner === 'top-left' || corner === 'top-right';
+  return {
+    x: left ? workArea.x + m : workArea.x + workArea.width - width - m,
+    y: top ? workArea.y + m : workArea.y + workArea.height - height - m,
+    width,
+    height,
+  };
+}
+
+/**
+ * The corner a panel at `bounds` should snap to, or null. A corner matches
+ * when the panel's matching corner is within `snapDistance` px (on both axes)
+ * of where it would sit when docked there. The closest match wins.
+ * @returns {string|null}
+ */
+function snapCorner(bounds, workArea, snapDistance, margin = 0) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const corner of CORNERS) {
+    const target = dockBounds(corner, bounds, workArea, margin);
+    const left = corner.endsWith('left');
+    const top = corner.startsWith('top');
+    const dx = Math.abs(left ? bounds.x - target.x : bounds.x + bounds.width - (target.x + target.width));
+    const dy = Math.abs(top ? bounds.y - target.y : bounds.y + bounds.height - (target.y + target.height));
+    if (dx > snapDistance || dy > snapDistance) continue;
+    const dist = Math.hypot(dx, dy);
+    if (dist < bestDist) {
+      best = corner;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/**
+ * The work area a window belongs to: the one it overlaps most, or, if it is
+ * off every display, the one whose centre is closest to the window's centre.
+ * @param {Rect} bounds
+ * @param {Rect[]} workAreas
+ * @param {Rect} fallback
+ * @returns {Rect}
+ */
+function workAreaFor(bounds, workAreas, fallback) {
+  if (!isRect(bounds) || !workAreas.length) return fallback;
+  let best = null;
+  let bestArea = 0;
+  for (const wa of workAreas) {
+    const i = intersect(bounds, wa);
+    const area = i ? i.width * i.height : 0;
+    if (area > bestArea) {
+      best = wa;
+      bestArea = area;
+    }
+  }
+  if (best) return best;
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  let bestDist = Infinity;
+  for (const wa of workAreas) {
+    const d = Math.hypot(wa.x + wa.width / 2 - cx, wa.y + wa.height / 2 - cy);
+    if (d < bestDist) {
+      best = wa;
+      bestDist = d;
+    }
+  }
+  return best || fallback;
+}
+
+/**
+ * Decide what happens when the user stops moving or resizing the panel.
+ *
+ * - Size changed (a resize) and the panel is docked: stay docked, re-placed so
+ *   the new size sits snugly in the same corner.
+ * - Moved: with snapping on, a panel released near a corner docks there;
+ *   anywhere else it becomes 'free' and stays where it was dropped.
+ *
+ * @param {{
+ *   prev: Rect|null,        bounds before the change (null = unknown)
+ *   next: Rect,             bounds now
+ *   dock: string,           current PANEL_DOCKS value
+ *   snap: boolean,
+ *   workArea: Rect,
+ *   snapDistance: number,
+ *   margin: number,
+ * }} opts
+ * @returns {{ dock: string, bounds: Rect }}  bounds to apply (may equal next)
+ */
+function settlePanel({ prev, next, dock, snap, workArea, snapDistance, margin }) {
+  const docked = CORNERS.includes(dock);
+  const resized = !!prev && (prev.width !== next.width || prev.height !== next.height);
+  const moved = !prev || prev.x !== next.x || prev.y !== next.y;
+  if (resized && docked) return { dock, bounds: dockBounds(dock, next, workArea, margin) };
+  if (!moved && !resized) return { dock, bounds: next };
+  if (resized) return { dock: 'free', bounds: next };
+  const corner = snap ? snapCorner(next, workArea, snapDistance, margin) : null;
+  if (corner) return { dock: corner, bounds: dockBounds(corner, next, workArea, margin) };
+  return { dock: 'free', bounds: next };
 }
 
 /**
@@ -174,4 +305,9 @@ module.exports = {
   isUsableSelection,
   pickScreenSource,
   initialPanelBounds,
+  CORNERS,
+  dockBounds,
+  snapCorner,
+  workAreaFor,
+  settlePanel,
 };

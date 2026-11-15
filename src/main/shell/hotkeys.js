@@ -5,12 +5,29 @@
  * with a fake globalShortcut).
  */
 
-const HOTKEY_NAMES = Object.freeze(['regionSnip', 'fullScreenshot', 'togglePanel']);
+const HOTKEY_NAMES = Object.freeze(['regionSnip', 'fullScreenshot', 'togglePanel', 'focusPanel']);
+
+/**
+ * Defaults the shell uses for hotkeys that settings don't have yet. The lead
+ * adds focusPanel to DEFAULT_SETTINGS with this PR (SPEC 9.5.3); until then a
+ * missing (undefined) focusPanel means this. An empty string still disables it.
+ */
+const FALLBACK_HOTKEYS = Object.freeze({ focusPanel: 'Ctrl+Alt+Space' });
+
+/** Fill hotkeys that are missing from settings with FALLBACK_HOTKEYS. */
+function withFallbacks(hotkeys) {
+  const out = { ...(hotkeys || {}) };
+  for (const [name, acc] of Object.entries(FALLBACK_HOTKEYS)) {
+    if (out[name] === undefined || out[name] === null) out[name] = acc;
+  }
+  return out;
+}
 
 const LABELS = Object.freeze({
   regionSnip: 'Region snip',
   fullScreenshot: 'Full screenshot',
   togglePanel: 'Show/hide panel',
+  focusPanel: 'Focus panel',
 });
 
 const MODIFIERS = new Set([
@@ -57,7 +74,7 @@ function validateAccelerator(acc) {
 /**
  * @param {{
  *   globalShortcut: { register(acc: string, cb: Function): boolean, unregister(acc: string): void },
- *   handlers: { regionSnip: Function, fullScreenshot: Function, togglePanel: Function },
+ *   handlers: { regionSnip: Function, fullScreenshot: Function, togglePanel: Function, focusPanel?: Function },
  *   onError: (message: string) => void,
  *   log?: { warn: Function },
  * }} deps
@@ -115,7 +132,9 @@ function createHotkeyManager({ globalShortcut, handlers, onError, log = console 
       }
       let ok = false;
       try {
-        ok = globalShortcut.register(acc, () => handlers[name]());
+        ok = globalShortcut.register(acc, () => {
+          if (handlers[name]) handlers[name]();
+        });
       } catch (err) {
         log.warn(`[shell] register ${acc} threw: ${err.message}`);
         ok = false;
@@ -148,4 +167,4 @@ function createHotkeyManager({ globalShortcut, handlers, onError, log = console 
   return { apply, dispose, registered };
 }
 
-module.exports = { createHotkeyManager, validateAccelerator, HOTKEY_NAMES };
+module.exports = { createHotkeyManager, validateAccelerator, withFallbacks, HOTKEY_NAMES, FALLBACK_HOTKEYS };
