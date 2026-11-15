@@ -109,3 +109,32 @@ export function duplicateHotkeys(hotkeys) {
   }
   return [...byValue.values()].filter((names) => names.length > 1);
 }
+
+// Shortcuts Linux Mint Cinnamon uses out of the box (lower case, as validateAccelerator writes them).
+const CINNAMON_TAKEN = new Set([
+  'ctrl+alt+t', 'ctrl+alt+l', 'ctrl+alt+delete', 'ctrl+alt+backspace', 'ctrl+alt+escape',
+  'ctrl+alt+up', 'ctrl+alt+down', 'ctrl+alt+left', 'ctrl+alt+right', 'ctrl+alt+d',
+  'alt+tab', 'alt+shift+tab', 'alt+f1', 'alt+f2', 'alt+f4', 'alt+f7', 'alt+f8', 'alt+f10',
+  'printscreen', 'shift+printscreen', 'alt+printscreen', 'ctrl+printscreen',
+]);
+
+/**
+ * A non-blocking warning for a hotkey that is likely to clash with Cinnamon.
+ * Super combos are unreliable there: pressing Super starts the menu's key grab,
+ * so the combo only sometimes reaches Proxy, and some (like Super+S for the
+ * sound applet) open a Cinnamon applet instead.
+ * @param {string} acc
+ * @returns {string} '' when there's nothing to warn about
+ */
+export function hotkeyWarning(acc) {
+  const v = validateAccelerator(acc);
+  if (!v.ok || !v.value) return '';
+  const parts = v.value.toLowerCase().split('+');
+  if (parts.includes('super') || parts.includes('meta')) {
+    return 'Super shortcuts are unreliable on Cinnamon (its menu and applets grab Super). Ctrl+Alt+<key> works better.';
+  }
+  if (CINNAMON_TAKEN.has(v.value.toLowerCase())) {
+    return 'Cinnamon already uses this shortcut. Pick another, or free it in System Settings > Keyboard > Shortcuts.';
+  }
+  return '';
+}

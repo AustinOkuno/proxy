@@ -1,7 +1,7 @@
 // OWNER: Worker 3. Settings screen: AI provider and model, hotkeys, send mode, panel visibility, answer style.
 
 import { el } from './dom.js';
-import { keyEventToAccelerator } from '../lib/accelerator.js';
+import { hotkeyWarning, keyEventToAccelerator } from '../lib/accelerator.js';
 import {
   ANSWER_STYLE_LABELS,
   CLAUDE_MODEL_LABELS,
@@ -24,6 +24,7 @@ import {
 export function createSettingsView({ form, status, constants, save, close }) {
   const hotkeyInputs = {};
   const hotkeyErrors = {};
+  const hotkeyWarnings = {};
   let dirty = false;
   let stopRecording = null;
 
@@ -35,17 +36,25 @@ export function createSettingsView({ form, status, constants, save, close }) {
     const record = el('button', { type: 'button', className: 'btn small', text: 'Record' });
     const clear = el('button', { type: 'button', className: 'btn small', text: 'Clear' });
     const error = el('div', { className: 'field-error', 'aria-live': 'polite' });
+    const warning = el('div', { className: 'field-warning', 'aria-live': 'polite' });
     record.addEventListener('click', () => startRecording(input, record));
-    clear.addEventListener('click', () => { input.value = ''; markDirty(); });
+    clear.addEventListener('click', () => { input.value = ''; updateWarning(name); markDirty(); });
+    input.addEventListener('input', () => updateWarning(name));
     hotkeyInputs[name] = input;
     hotkeyErrors[name] = error;
+    hotkeyWarnings[name] = warning;
     hotkeyBox.append(
       el('div', { className: 'field' }, [
         el('label', { for: id, text: label }),
         el('div', { className: 'field-row' }, [input, record, clear]),
         error,
+        warning,
       ]),
     );
+  }
+
+  function updateWarning(name) {
+    hotkeyWarnings[name].textContent = hotkeyWarning(hotkeyInputs[name].value);
   }
 
   // Radio groups.
@@ -94,11 +103,13 @@ export function createSettingsView({ form, status, constants, save, close }) {
       e.stopPropagation();
       if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
         input.value = before;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
         return finish();
       }
       const acc = keyEventToAccelerator(e);
       if (acc) {
         input.value = acc;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
         markDirty();
         finish();
       }
@@ -140,6 +151,7 @@ export function createSettingsView({ form, status, constants, save, close }) {
   function fill(settings) {
     for (const { name } of HOTKEY_FIELDS) {
       hotkeyInputs[name].value = (settings.hotkeys && settings.hotkeys[name]) || '';
+      updateWarning(name);
     }
     for (const field of RADIO_FIELDS) {
       const radio = form.querySelector(`input[name="${field}"][value="${settings[field]}"]`);

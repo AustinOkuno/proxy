@@ -191,6 +191,7 @@ const EVENTS = Object.freeze({
  * @typedef {Object} Hotkeys
  * Electron accelerator strings (https://www.electronjs.org/docs/latest/api/accelerator).
  * "Super" is the Windows/Meta key. Empty string disables the hotkey.
+ * Defaults avoid Super, which Cinnamon's menu and applets grab.
  * @property {string} regionSnip
  * @property {string} fullScreenshot
  * @property {string} togglePanel
@@ -222,15 +223,28 @@ const EVENTS = Object.freeze({
 // Settings defaults
 // ---------------------------------------------------------------------------
 
-const SETTINGS_VERSION = 1;
+// v2: hotkey defaults moved off Super. On Cinnamon, pressing Super starts the
+// menu's grab, so Super+Shift+<key> reaches Proxy only sometimes, and
+// Super+Shift+S also opens the sound applet (its "show menu" key is Super+S).
+const SETTINGS_VERSION = 2;
+
+/**
+ * Hotkey defaults of settings v1. A saved v1 hotkey still equal to one of
+ * these is moved to the new default on load (Worker 2's settings store).
+ */
+const LEGACY_HOTKEY_DEFAULTS = Object.freeze({
+  regionSnip: 'Super+Shift+S',
+  fullScreenshot: 'Super+Shift+A',
+  togglePanel: 'Super+Shift+P',
+});
 
 /** @type {Readonly<Settings>} */
 const DEFAULT_SETTINGS = Object.freeze({
   version: SETTINGS_VERSION,
   hotkeys: Object.freeze({
-    regionSnip: 'Super+Shift+S',
-    fullScreenshot: 'Super+Shift+A',
-    togglePanel: 'Super+Shift+P',
+    regionSnip: 'Ctrl+Alt+S',
+    fullScreenshot: 'Ctrl+Alt+A',
+    togglePanel: 'Ctrl+Alt+P',
   }),
   sendMode: SEND_MODES.INSTANT,
   panelVisibility: PANEL_VISIBILITY.ALWAYS,
@@ -269,6 +283,7 @@ module.exports = {
   INVOKE,
   EVENTS,
   SETTINGS_VERSION,
+  LEGACY_HOTKEY_DEFAULTS,
   DEFAULT_SETTINGS,
   defaultSettings,
 };

@@ -288,6 +288,7 @@ code { font-family: var(--font-mono); font-size: var(--font-size-small); }
 input.invalid { border-color: var(--danger); }
 input.recording { border-color: var(--accent); }
 .field-error { color: var(--danger); font-size: var(--font-size-small); min-height: 0; }
+.field-warning { color: var(--warning); font-size: var(--font-size-small); min-height: 0; }
 .rename-input {
   background: var(--bg);
   color: var(--text);
