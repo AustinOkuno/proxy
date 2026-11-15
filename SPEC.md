@@ -423,7 +423,7 @@ hotkeys: { ...existing, focusPanel: 'Ctrl+Alt+Space' },
 ```
 - `settings.update` merges `appearance`, `panel` and `usage` one level deep, `appearance.fonts` per level, `keymap` per key, and replaces arrays. Invalid values are dropped as today.
 - **W2's first PR** makes `core/settings.js` validate these keys (it drops unknown keys today, so nothing new persists until it lands). `SETTINGS_LIMITS` in contracts holds the ranges and max lengths so the validation and the UI agree.
-- **Versioning:** step 0 puts the new keys in `DEFAULT_SETTINGS` but leaves `SETTINGS_VERSION` at 2, because the existing tests pin it. W2's validation PR makes its tests read `SETTINGS_VERSION` instead of a literal, and the lead bumps it to 3 right after that merges. Likewise `hotkeys.focusPanel` joins the defaults when W1's command bar PR registers it (W1 updates its own tests then; the lead adds the default).
+- **Versioning:** `SETTINGS_VERSION` is 3. A v2 file needs no data moved: it loads with the new keys filled from the defaults and is saved back as v3. `hotkeys.focusPanel` is still not in `DEFAULT_SETTINGS` because W2's v1-migration test lists the exact hotkeys; the shell and the settings form use `Ctrl+Alt+Space` when it is missing, and the lead adds the default once that test reads the defaults instead.
 - v2 files load with the new defaults filled in; nothing the user set changes.
 
 #### 9.5.4 Usage meter: what we can honestly show
@@ -502,7 +502,7 @@ Each worker registers its own commands from its mount function or its own views 
 
 Step 0 skeleton: `index.html` has `#titlebar` (the old toolbar, classes `titlebar drag-region`), `#usage-slot`, `#cmdbar-root`, and empty `#settings-look` / `#settings-usage` sections inside the settings form for W1 to arrange into tabs. `keys/commands.js` is a working registry; the other modules are no-op stubs. A module that throws while mounting is logged and skipped, so the chat keeps working.
 
-Class names W2 and W1 emit and W3 styles: `.titlebar`, `.drag-region`, `.no-drag`, `.msg`, `.msg-user`, `.msg-assistant`, `.msg-error`, `.reply-answer`, `.reply-explanation`, `.reply-explanation.collapsed`, `.reply-model`, `.rich` (root of rendered Markdown), `.rich-math`, `.rich-code`, `.rich-table`, `.rich-plot`, `.pin`, `.is-pinned`, `.search-box`, `.search-hit`, `.search-mark`, `.usage-meter`, `.usage-bar`, `.usage-bar.warning`, `.usage-bar.limited`, `.cmdbar`, `.cmdbar-input`, `.cmdbar-item`, `.cmdbar-item.active`, `.kbd`. New ones go in this list through the lead.
+Class names W2 and W1 emit and W3 styles: `.titlebar`, `.drag-region`, `.no-drag`, `.msg`, `.msg-user`, `.msg-assistant`, `.msg-error`, `.reply-answer`, `.reply-explanation`, `.reply-explanation.collapsed`, `.reply-model`, `.rich` (root of rendered Markdown), `.rich-math`, `.rich-code`, `.rich-table`, `.rich-plot`, `.pin`, `.is-pinned`, `.search-box`, `.search-hit`, `.search-mark`, `.search-target` (a message row briefly marked after opening a search hit), `.usage-meter`, `.usage-bar`, `.usage-bar.warning`, `.usage-bar.limited`, `.cmdbar`, `.cmdbar-input`, `.cmdbar-item`, `.cmdbar-item.active`, `.kbd`. New ones go in this list through the lead.
 
 ### 9.6 Keyboard map (defaults, all rebindable)
 

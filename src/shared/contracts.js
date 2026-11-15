@@ -370,13 +370,13 @@ const EVENTS = Object.freeze({
 // Settings defaults
 // ---------------------------------------------------------------------------
 
-// v3 (UI phase: appearance, panel, keymap, usage, hotkeys.focusPanel) is bumped
-// by the lead together with Worker 2's settings validation PR (SPEC 9.8). The
-// new keys below are already in the defaults so every worker can read them.
+// v3: UI phase (appearance, panel, keymap, usage, hotkeys.focusPanel; SPEC 9.5.3).
+// No data moves: a v2 file loads with the new keys filled from these defaults
+// and is saved back as v3. Nothing the user set changes.
 // v2: hotkey defaults moved off Super. On Cinnamon, pressing Super starts the
 // menu's grab, so Super+Shift+<key> reaches Proxy only sometimes, and
 // Super+Shift+S also opens the sound applet (its "show menu" key is Super+S).
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 /**
  * Hotkey defaults of settings v1. A saved v1 hotkey still equal to one of
@@ -395,8 +395,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     regionSnip: 'Ctrl+Alt+S',
     fullScreenshot: 'Ctrl+Alt+A',
     togglePanel: 'Ctrl+Alt+P',
-    // focusPanel: 'Ctrl+Alt+Space' is added by the lead with Worker 1's command
-    // bar PR (SPEC 9.8), when the shell registers it and the tests expect it.
+    // focusPanel is not in the defaults yet: Worker 2's v1-migration test lists the
+    // exact hotkeys. The shell and settings form fall back to 'Ctrl+Alt+Space'.
   }),
   sendMode: SEND_MODES.INSTANT,
   panelVisibility: PANEL_VISIBILITY.ALWAYS,
