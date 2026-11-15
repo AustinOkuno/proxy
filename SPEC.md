@@ -288,7 +288,7 @@ The lead reviews interface-change requests and does the final end-to-end check o
 
 ## 9. UI phase (v1): the retro look
 
-**Status: plan, waiting for Austin's approval.** Nothing in this section is built yet. When it is approved, the lead lands step 0 (section 9.8), then three workers build in parallel. Where this section and sections 1 to 8 disagree, this section wins for v1.
+**Status: approved.** Step 0 (the lead's skeleton) is in; the three workers build in parallel from here. Where this section and sections 1 to 8 disagree, this section wins for v1.
 
 ### 9.1 Goal
 
@@ -422,7 +422,8 @@ usage: { show: true, geminiDailyRequests: null },   // a daily request budget th
 hotkeys: { ...existing, focusPanel: 'Ctrl+Alt+Space' },
 ```
 - `settings.update` merges `appearance`, `panel` and `usage` one level deep, `appearance.fonts` per level, `keymap` per key, and replaces arrays. Invalid values are dropped as today.
-- **W2's first PR** makes `core/settings.js` validate these keys (it drops unknown keys today, so nothing new persists until it lands). The lead adds a `SETTINGS_LIMITS` object in contracts (ranges, max lengths) so the validation and the UI agree.
+- **W2's first PR** makes `core/settings.js` validate these keys (it drops unknown keys today, so nothing new persists until it lands). `SETTINGS_LIMITS` in contracts holds the ranges and max lengths so the validation and the UI agree.
+- **Versioning:** step 0 puts the new keys in `DEFAULT_SETTINGS` but leaves `SETTINGS_VERSION` at 2, because the existing tests pin it. W2's validation PR makes its tests read `SETTINGS_VERSION` instead of a literal, and the lead bumps it to 3 right after that merges. Likewise `hotkeys.focusPanel` joins the defaults when W1's command bar PR registers it (W1 updates its own tests then; the lead adds the default).
 - v2 files load with the new defaults filled in; nothing the user set changes.
 
 #### 9.5.4 Usage meter: what we can honestly show
@@ -497,7 +498,9 @@ renderRich(markdown, { kind: 'answer'|'explanation' })   // -> HTMLElement (sani
 mountUsageMeter(slot, { proxy, settings, onSettings })
 mountUsageSettings(container, { proxy, settings, save })
 ```
-Each worker registers its own commands from its mount function (W3: one `theme.<id>` command per theme; W2: pin, search, collapse explanation; W1: panel and window commands). `app.js` (lead) registers the chat commands by calling the existing chat and sidebar code.
+Each worker registers its own commands from its mount function or its own views (W3: one `theme.<id>` command per theme and `theme.next`; W2: `chat.next`, `chat.prev`, `chat.switch` from the sidebar, plus pin, search and collapse explanation; W1: `app.commandBar` and the `panel.dock.*` commands). `app.js` (lead) already registers `chat.new`, `chat.copyAnswer`, `chat.focusInput`, `app.settings`, `app.toggleSidebar`, `capture.region`, `capture.fullscreen`, `window.toggleFullscreen` and `window.hide`.
+
+Step 0 skeleton: `index.html` has `#titlebar` (the old toolbar, classes `titlebar drag-region`), `#usage-slot`, `#cmdbar-root`, and empty `#settings-look` / `#settings-usage` sections inside the settings form for W1 to arrange into tabs. `keys/commands.js` is a working registry; the other modules are no-op stubs. A module that throws while mounting is logged and skipped, so the chat keeps working.
 
 Class names W2 and W1 emit and W3 styles: `.titlebar`, `.drag-region`, `.no-drag`, `.msg`, `.msg-user`, `.msg-assistant`, `.msg-error`, `.reply-answer`, `.reply-explanation`, `.reply-explanation.collapsed`, `.reply-model`, `.rich` (root of rendered Markdown), `.rich-math`, `.rich-code`, `.rich-table`, `.rich-plot`, `.pin`, `.is-pinned`, `.search-box`, `.search-hit`, `.search-mark`, `.usage-meter`, `.usage-bar`, `.usage-bar.warning`, `.usage-bar.limited`, `.cmdbar`, `.cmdbar-input`, `.cmdbar-item`, `.cmdbar-item.active`, `.kbd`. New ones go in this list through the lead.
 
@@ -539,7 +542,7 @@ The existing global capture hotkeys stay as they are (`Ctrl+Alt+S`, `Ctrl+Alt+A`
 
 ### 9.8 Build order and "done"
 
-**Step 0, lead (one small PR, right after approval):** contracts and preload for 9.5, `SETTINGS_VERSION = 3` with defaults, contract tests, `createShell` gets `dataDir`, and the renderer skeleton: `index.html` gets the title bar, the usage meter slot, the command bar root, the settings tabs and the new stylesheet links; `app.js` calls `mountTheme`, `mountKeys`, `mountUsageMeter` and registers the chat commands; empty stub modules for `keys/`, `theme/`, `render/`, `usage/` so `npm start` works. CLAUDE.md gets the 9.3 table.
+**Step 0, lead (one small PR, right after approval):** contracts and preload for 9.5, the new settings defaults (version bump later, see 9.5.3), contract tests, `createShell` gets `dataDir`, and the renderer skeleton: `index.html` gets the title bar, the usage meter slot, the command bar root, the settings tabs and the new stylesheet links; `app.js` calls `mountTheme`, `mountKeys`, `mountUsageMeter` and registers the chat commands; empty stub modules for `keys/`, `theme/`, `render/`, `usage/` so `npm start` works. CLAUDE.md gets the 9.3 table.
 
 Then each worker opens small PRs in this order. "Done" for every PR: `npm test` passes, `npm start` opens the panel and it still loads, only owned files changed, and the PR description lists the 9.x items it covers.
 

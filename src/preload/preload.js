@@ -21,6 +21,10 @@ const {
   ANSWER_STYLES,
   PROVIDERS,
   CLAUDE_MODELS,
+  PANEL_DOCKS,
+  FONT_LEVELS,
+  ASSET_KINDS,
+  SETTINGS_LIMITS,
   DEFAULT_SETTINGS,
 } = require('../shared/contracts');
 
@@ -49,11 +53,14 @@ const api = {
     delete: (id) => ipcRenderer.invoke(INVOKE.HISTORY_DELETE, { id }),
     /** folderId null = move back to the top level. */
     move: (id, folderId) => ipcRenderer.invoke(INVOKE.HISTORY_MOVE, { id, folderId: folderId || null }),
+    setPinned: (id, pinned) => ipcRenderer.invoke(INVOKE.HISTORY_SET_PINNED, { id, pinned: !!pinned }),
+    /** @param {string} query @param {{ limit?: number }} [opts] */
+    search: (query, opts) => ipcRenderer.invoke(INVOKE.HISTORY_SEARCH, { ...(opts || {}), query: String(query || '') }),
   },
   folders: {
     list: invoke(INVOKE.FOLDER_LIST),
     create: (name) => ipcRenderer.invoke(INVOKE.FOLDER_CREATE, { name }),
-    /** @param {{ name?: string, collapsed?: boolean }} patch */
+    /** @param {{ name?: string, collapsed?: boolean, pinned?: boolean }} patch */
     update: (id, patch) => ipcRenderer.invoke(INVOKE.FOLDER_UPDATE, { ...(patch || {}), id }),
     delete: (id) => ipcRenderer.invoke(INVOKE.FOLDER_DELETE, { id }),
   },
@@ -70,6 +77,18 @@ const api = {
     toggleFullscreen: invoke(INVOKE.WINDOW_TOGGLE_FULLSCREEN),
     hide: invoke(INVOKE.WINDOW_HIDE),
     getState: invoke(INVOKE.WINDOW_GET_STATE),
+    /** @param {string} dock  a PANEL_DOCKS value */
+    dock: (dock) => ipcRenderer.invoke(INVOKE.WINDOW_DOCK, { dock }),
+  },
+  assets: {
+    /** Opens a file dialog. @param {'image'|'font'} kind */
+    import: (kind) => ipcRenderer.invoke(INVOKE.ASSETS_IMPORT, { kind }),
+    get: (id) => ipcRenderer.invoke(INVOKE.ASSETS_GET, { id }),
+    list: (kind) => ipcRenderer.invoke(INVOKE.ASSETS_LIST, kind ? { kind } : {}),
+    delete: (id) => ipcRenderer.invoke(INVOKE.ASSETS_DELETE, { id }),
+  },
+  usage: {
+    get: invoke(INVOKE.USAGE_GET),
   },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke(INVOKE.CLIPBOARD_WRITE_TEXT, { text }),
@@ -93,6 +112,10 @@ const api = {
     ANSWER_STYLES,
     PROVIDERS,
     CLAUDE_MODELS,
+    PANEL_DOCKS,
+    FONT_LEVELS,
+    ASSET_KINDS,
+    SETTINGS_LIMITS,
     DEFAULT_SETTINGS,
   },
 };

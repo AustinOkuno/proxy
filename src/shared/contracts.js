@@ -52,6 +52,49 @@ const CLAUDE_MODELS = Object.freeze({
   OPUS: 'opus', // smartest, slowest, uses Pro limits fastest
 });
 
+/** Where the panel sits. A docked panel stays in its corner; 'free' keeps panelBounds. (UI phase, SPEC 9) */
+const PANEL_DOCKS = Object.freeze({
+  TOP_LEFT: 'top-left',
+  TOP_RIGHT: 'top-right', // default
+  BOTTOM_LEFT: 'bottom-left',
+  BOTTOM_RIGHT: 'bottom-right',
+  FREE: 'free',
+});
+
+/** The text levels that each get their own font (SPEC 9.5.2). */
+const FONT_LEVELS = Object.freeze(['title', 'ui', 'answer', 'explanation', 'body', 'code']);
+
+/** Asset kinds the user can import (SPEC 9.5.5). */
+const ASSET_KINDS = Object.freeze({
+  IMAGE: 'image',
+  FONT: 'font',
+});
+
+/**
+ * Ranges and limits shared by validation (W2), the shell (W1) and the settings
+ * UI (W1, W3), so they always agree. (SPEC 9.5.3)
+ */
+const SETTINGS_LIMITS = Object.freeze({
+  fontSize: Object.freeze({ min: 10, max: 40 }),
+  fontWeight: Object.freeze({ min: 100, max: 900 }),
+  fontFamilyMaxLength: 100,
+  customThemesMax: 50,
+  customFontsMax: 20,
+  themeNameMaxLength: 40,
+  themeRadius: Object.freeze({ min: 0, max: 12 }),
+  effect: Object.freeze({ min: 0, max: 1 }), // scanlines, glow, vignette
+  backgroundDim: Object.freeze({ min: 0, max: 1 }),
+  backgroundBlur: Object.freeze({ min: 0, max: 20 }), // px
+  backgroundFits: Object.freeze(['cover', 'contain', 'auto']),
+  panelMargin: Object.freeze({ min: 0, max: 64 }), // px
+  snapDistance: 48, // px: a drag that ends this close to a corner docks there
+  acceleratorMaxLength: 100,
+  geminiDailyRequests: Object.freeze({ min: 1, max: 100000 }),
+  searchLimit: Object.freeze({ default: 50, max: 200 }),
+  assetMaxBytes: 15 * 1024 * 1024,
+  imageMaxSide: 2560, // px; larger imported images are scaled down
+});
+
 // ---------------------------------------------------------------------------
 // IPC channels
 // ---------------------------------------------------------------------------
@@ -76,6 +119,10 @@ const INVOKE = Object.freeze({
   FOLDER_DELETE: 'folder:delete', // ({ id }) -> { ok: true }  (its chats move to the top level)
   SETTINGS_GET: 'settings:get', // () -> Settings
   SETTINGS_UPDATE: 'settings:update', // (SettingsPatch) -> Settings  (validated, merged, saved)
+  // UI phase (SPEC 9.5.5)
+  HISTORY_SET_PINNED: 'history:set-pinned', // ({ id, pinned }) -> SessionSummary
+  HISTORY_SEARCH: 'history:search', // ({ query, limit? }) -> SearchHit[]  (newest first)
+  USAGE_GET: 'usage:get', // () -> UsageSnapshot
 
   // Owner: Worker 1 (shell)
   CAPTURE_REGION: 'capture:region', // () -> { ok: true }   result arrives via EVENTS.CAPTURE_READY
@@ -84,6 +131,12 @@ const INVOKE = Object.freeze({
   WINDOW_HIDE: 'window:hide', // () -> WindowState
   WINDOW_GET_STATE: 'window:get-state', // () -> WindowState
   CLIPBOARD_WRITE_TEXT: 'clipboard:write-text', // ({ text }) -> { ok: true }
+  // UI phase (SPEC 9.5.5)
+  WINDOW_DOCK: 'window:dock', // ({ dock }) -> WindowState   dock is a PANEL_DOCKS value
+  ASSETS_IMPORT: 'assets:import', // ({ kind }) -> AssetInfo | null   opens a file dialog; null = cancelled
+  ASSETS_GET: 'assets:get', // ({ id }) -> AssetData | null
+  ASSETS_LIST: 'assets:list', // ({ kind? }) -> AssetInfo[]
+  ASSETS_DELETE: 'assets:delete', // ({ id }) -> { ok: true }
 });
 
 /**
@@ -100,6 +153,7 @@ const EVENTS = Object.freeze({
   // Owner: Worker 2 (core)
   SETTINGS_CHANGED: 'settings:changed', // (Settings)
   HISTORY_CHANGED: 'history:changed', // ()  sessions or folders changed; re-fetch HISTORY_LIST and FOLDER_LIST
+  USAGE_CHANGED: 'usage:changed', // (UsageSnapshot)  UI phase (SPEC 9.5.4)
 });
 
 // ---------------------------------------------------------------------------
@@ -146,6 +200,8 @@ const EVENTS = Object.freeze({
  * @property {number} updatedAt
  * @property {number} messageCount
  * @property {string|null} folderId   The Folder this chat is in; null = top level.
+ * @property {boolean} [pinned]       UI phase: pinned chats sort first (SPEC 9.5.5).
+ * @property {number|null} [pinnedAt] Epoch ms it was pinned, or null.
  */
 
 /**
@@ -155,6 +211,21 @@ const EVENTS = Object.freeze({
  * @property {string} name
  * @property {number} createdAt
  * @property {boolean} collapsed   Remembered across restarts.
+ * @property {boolean} [pinned]       UI phase: pinned folders sort first (SPEC 9.5.5).
+ * @property {number|null} [pinnedAt] Epoch ms it was pinned, or null.
+ */
+
+/**
+ * One search result (SPEC 9.5.5).
+ * @typedef {Object} SearchHit
+ * @property {string} sessionId
+ * @property {string} title
+ * @property {string|null} folderId
+ * @property {string|null} messageId   null when only the title matched
+ * @property {string} snippet          a short piece of text around the match
+ * @property {number} matchStart       index of the match inside snippet
+ * @property {number} matchLength
+ * @property {number} updatedAt
  */
 
 /**
@@ -185,6 +256,72 @@ const EVENTS = Object.freeze({
  * @property {boolean} visible
  * @property {boolean} fullscreen
  * @property {boolean} alwaysOnTop
+ * @property {string} [dock]       UI phase: PANEL_DOCKS value
+ * @property {boolean} [focused]   UI phase: the panel has keyboard focus
+ */
+
+/**
+ * An imported image or font file, stored in dataDir/assets (SPEC 9.5.5).
+ * @typedef {Object} AssetInfo
+ * @property {string} id
+ * @property {'image'|'font'} kind
+ * @property {string} name        original file name, for display
+ * @property {string} mimeType
+ * @property {number} bytes
+ * @property {number} createdAt
+ */
+
+/** @typedef {{ id: string, mimeType: string, dataBase64: string }} AssetData */
+
+/**
+ * @typedef {Object} UsageWindow
+ * @property {'five_hour'|'seven_day'|'day'} id
+ * @property {string} label            'Next 5 h', 'This week', 'Today'
+ * @property {number|null} used        0 to 1, or null when unknown
+ * @property {number|null} resetsAt    epoch ms, or null
+ * @property {'ok'|'warning'|'limited'|'unknown'} status
+ */
+
+/**
+ * What the usage meter shows (SPEC 9.5.4).
+ * @typedef {Object} UsageSnapshot
+ * @property {string} provider         PROVIDERS value
+ * @property {'claude-cli'|'local-count'} source
+ * @property {UsageWindow[]} windows
+ * @property {{ requests: number, inputTokens: number, outputTokens: number }} today
+ * @property {number|null} updatedAt   epoch ms of the last change
+ */
+
+/** @typedef {{ family: string, size: number, weight?: number }} FontChoice  size in px */
+
+/**
+ * A color theme (SPEC 9.5.2). Built-in themes live in the renderer (W3); user
+ * themes are stored in settings.appearance.customThemes.
+ * @typedef {Object} ThemeDef
+ * @property {string} id                     built-in id, or 'user-<random>'
+ * @property {string} name
+ * @property {'light'|'dark'} base
+ * @property {Object<string,string>} colors  token names without '--' -> CSS color
+ * @property {{ scanlines: number, glow: number, vignette: number }} effects   each 0 to 1
+ * @property {number} radius                 px
+ */
+
+/**
+ * @typedef {Object} Appearance
+ * @property {string} themeId
+ * @property {ThemeDef[]} customThemes
+ * @property {Record<string, FontChoice>} fonts   one per FONT_LEVELS entry
+ * @property {{ assetId: string, family: string }[]} customFonts
+ * @property {{ scanlines: number, glow: number, vignette: number }|null} effects   null = the theme's
+ * @property {{ assetId: string|null, fit: string, dim: number, blur: number }} background
+ */
+
+/**
+ * @typedef {Object} PanelPrefs
+ * @property {string} dock                  PANEL_DOCKS value
+ * @property {boolean} snap
+ * @property {number} margin                px
+ * @property {boolean} explanationCollapsed
  */
 
 /**
@@ -195,6 +332,8 @@ const EVENTS = Object.freeze({
  * @property {string} regionSnip
  * @property {string} fullScreenshot
  * @property {string} togglePanel
+ * @property {string} [focusPanel] UI phase: bring keyboard focus to the panel (SPEC 9.6); default
+ *                                 'Ctrl+Alt+Space', added to the defaults with W1's command bar PR
  */
 
 /**
@@ -215,14 +354,25 @@ const EVENTS = Object.freeze({
  * @property {string} provider          PROVIDERS value
  * @property {string} claudeModel       CLAUDE_MODELS value (used when provider is claude-pro)
  * @property {PanelBounds|null} panelBounds   Last panel position/size; null = default placement.
+ * @property {Appearance} appearance            UI phase (SPEC 9.5.3)
+ * @property {PanelPrefs} panel                 UI phase
+ * @property {Record<string,string>} keymap     UI phase: commandId -> accelerator overrides ('' disables)
+ * @property {{ show: boolean, geminiDailyRequests: number|null }} usage   UI phase
  */
 
-/** @typedef {Partial<Omit<Settings,'hotkeys'>> & { hotkeys?: Partial<Hotkeys> }} SettingsPatch */
+/**
+ * appearance, panel and usage merge one level deep; appearance.fonts per level;
+ * keymap per key; arrays (customThemes, customFonts) are replaced whole.
+ * @typedef {Partial<Omit<Settings,'hotkeys'>> & { hotkeys?: Partial<Hotkeys> }} SettingsPatch
+ */
 
 // ---------------------------------------------------------------------------
 // Settings defaults
 // ---------------------------------------------------------------------------
 
+// v3 (UI phase: appearance, panel, keymap, usage, hotkeys.focusPanel) is bumped
+// by the lead together with Worker 2's settings validation PR (SPEC 9.8). The
+// new keys below are already in the defaults so every worker can read them.
 // v2: hotkey defaults moved off Super. On Cinnamon, pressing Super starts the
 // menu's grab, so Super+Shift+<key> reaches Proxy only sometimes, and
 // Super+Shift+S also opens the sound applet (its "show menu" key is Super+S).
@@ -245,6 +395,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     regionSnip: 'Ctrl+Alt+S',
     fullScreenshot: 'Ctrl+Alt+A',
     togglePanel: 'Ctrl+Alt+P',
+    // focusPanel: 'Ctrl+Alt+Space' is added by the lead with Worker 1's command
+    // bar PR (SPEC 9.8), when the shell registers it and the tests expect it.
   }),
   sendMode: SEND_MODES.INSTANT,
   panelVisibility: PANEL_VISIBILITY.ALWAYS,
@@ -252,6 +404,29 @@ const DEFAULT_SETTINGS = Object.freeze({
   provider: PROVIDERS.GEMINI,
   claudeModel: CLAUDE_MODELS.HAIKU,
   panelBounds: null,
+  appearance: Object.freeze({
+    themeId: 'dungeon',
+    customThemes: Object.freeze([]),
+    fonts: Object.freeze({
+      title: Object.freeze({ family: 'VT323', size: 22, weight: 400 }),
+      ui: Object.freeze({ family: 'JetBrains Mono', size: 12 }),
+      answer: Object.freeze({ family: 'JetBrains Mono', size: 17, weight: 700 }),
+      explanation: Object.freeze({ family: 'IBM Plex Sans', size: 14 }),
+      body: Object.freeze({ family: 'IBM Plex Sans', size: 14 }),
+      code: Object.freeze({ family: 'JetBrains Mono', size: 13 }),
+    }),
+    customFonts: Object.freeze([]),
+    effects: null,
+    background: Object.freeze({ assetId: null, fit: 'cover', dim: 0.6, blur: 0 }),
+  }),
+  panel: Object.freeze({
+    dock: PANEL_DOCKS.TOP_RIGHT,
+    snap: true,
+    margin: 16,
+    explanationCollapsed: false,
+  }),
+  keymap: Object.freeze({}),
+  usage: Object.freeze({ show: true, geminiDailyRequests: null }),
 });
 
 /** Deep-ish copy of the defaults, safe to mutate. */
@@ -280,6 +455,10 @@ module.exports = {
   ANSWER_STYLES,
   PROVIDERS,
   CLAUDE_MODELS,
+  PANEL_DOCKS,
+  FONT_LEVELS,
+  ASSET_KINDS,
+  SETTINGS_LIMITS,
   INVOKE,
   EVENTS,
   SETTINGS_VERSION,

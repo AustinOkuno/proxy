@@ -7,16 +7,21 @@
   <title>Proxy</title>
   <link rel="stylesheet" href="styles/theme.css">
   <link rel="stylesheet" href="styles/app.css">
+  <link rel="stylesheet" href="keys/keys.css">
+  <link rel="stylesheet" href="render/render.css">
+  <link rel="stylesheet" href="usage/usage.css">
 </head>
 <body>
-  <!-- OWNER: Worker 3. Chat panel. Behaviour lives in app.js and views/. -->
+  <!-- OWNER: lead (UI phase composition root, SPEC 9.3). Ask the lead for markup changes.
+       Behaviour lives in app.js and the worker folders (keys/, theme/, render/, usage/, views/). -->
   <div id="app" class="app">
-    <header class="toolbar" role="toolbar" aria-label="Panel actions">
+    <header class="toolbar titlebar drag-region" id="titlebar" role="toolbar" aria-label="Panel actions">
       <button type="button" class="btn icon" id="btn-sidebar" title="Chats" aria-label="Show chats" aria-expanded="false">☰</button>
       <button type="button" class="btn" id="btn-snip" title="Snip a region">Snip</button>
       <button type="button" class="btn" id="btn-fullshot" title="Capture the whole screen">Full</button>
       <button type="button" class="btn" id="btn-new" title="Start a new chat">New chat</button>
       <span class="toolbar-spacer"></span>
+      <div class="usage-slot no-drag" id="usage-slot"></div>
       <button type="button" class="btn icon" id="btn-settings" title="Settings" aria-label="Settings">⚙</button>
       <button type="button" class="btn icon" id="btn-fullscreen" title="Full screen" aria-label="Toggle full screen">⛶</button>
       <button type="button" class="btn icon" id="btn-hide" title="Hide panel" aria-label="Hide panel">–</button>
@@ -87,6 +92,9 @@
             <div id="answer-style-options" class="options"></div>
           </fieldset>
 
+          <section class="settings-tab" id="settings-look" data-tab="look" aria-label="Look"></section>
+          <section class="settings-tab" id="settings-usage" data-tab="usage" aria-label="Usage"></section>
+
           <div class="settings-actions">
             <span class="muted" id="settings-status" role="status"></span>
             <button type="button" class="btn" id="btn-settings-cancel">Back</button>
@@ -95,6 +103,8 @@
         </form>
       </section>
     </div>
+
+    <div class="cmdbar-root" id="cmdbar-root"></div>
   </div>
   <script type="module" src="app.js"></script>
 </body>

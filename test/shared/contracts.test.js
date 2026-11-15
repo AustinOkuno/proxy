@@ -46,5 +46,50 @@ test('default hotkeys avoid Super (Cinnamon grabs it) and differ from the v1 def
     assert.doesNotMatch(acc, /super|meta/i, name);
     assert.notEqual(acc, c.LEGACY_HOTKEY_DEFAULTS[name]);
   }
-  assert.deepEqual(Object.keys(c.LEGACY_HOTKEY_DEFAULTS).sort(), Object.keys(s.hotkeys).sort());
+  for (const name of Object.keys(c.LEGACY_HOTKEY_DEFAULTS)) assert.ok(name in s.hotkeys, name);
+});
+
+// ---- UI phase (SPEC 9.5) ---------------------------------------------------
+
+test('UI phase: new IPC channels exist with the agreed names', () => {
+  assert.equal(c.INVOKE.HISTORY_SET_PINNED, 'history:set-pinned');
+  assert.equal(c.INVOKE.HISTORY_SEARCH, 'history:search');
+  assert.equal(c.INVOKE.USAGE_GET, 'usage:get');
+  assert.equal(c.INVOKE.WINDOW_DOCK, 'window:dock');
+  for (const op of ['import', 'get', 'list', 'delete']) {
+    assert.ok(Object.values(c.INVOKE).includes(`assets:${op}`), op);
+  }
+  assert.equal(c.EVENTS.USAGE_CHANGED, 'usage:changed');
+  for (const ch of Object.values(c.INVOKE)) assert.doesNotMatch(ch, /^overlay:/);
+});
+
+test('UI phase: panel defaults to the top right corner', () => {
+  const s = c.defaultSettings();
+  assert.ok(Object.values(c.PANEL_DOCKS).includes(s.panel.dock));
+  assert.equal(s.panel.dock, 'top-right');
+  assert.equal(s.panel.snap, true);
+  const { min, max } = c.SETTINGS_LIMITS.panelMargin;
+  assert.ok(s.panel.margin >= min && s.panel.margin <= max);
+});
+
+test('UI phase: appearance defaults cover every font level within limits', () => {
+  const { appearance } = c.defaultSettings();
+  assert.equal(appearance.themeId, 'dungeon');
+  assert.deepEqual(Object.keys(appearance.fonts).sort(), [...c.FONT_LEVELS].sort());
+  const L = c.SETTINGS_LIMITS;
+  for (const [level, font] of Object.entries(appearance.fonts)) {
+    assert.ok(font.family && font.family.length <= L.fontFamilyMaxLength, level);
+    assert.ok(font.size >= L.fontSize.min && font.size <= L.fontSize.max, level);
+    if (font.weight !== undefined) assert.ok(font.weight >= L.fontWeight.min && font.weight <= L.fontWeight.max, level);
+  }
+  assert.deepEqual(appearance.customThemes, []);
+  assert.equal(appearance.effects, null);
+  assert.ok(L.backgroundFits.includes(appearance.background.fit));
+  assert.equal(appearance.background.assetId, null);
+});
+
+test('UI phase: keymap and usage defaults', () => {
+  const s = c.defaultSettings();
+  assert.deepEqual(s.keymap, {});
+  assert.deepEqual(s.usage, { show: true, geminiDailyRequests: null });
 });
