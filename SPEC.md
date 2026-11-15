@@ -77,7 +77,7 @@ Tray features beyond Show panel / Quit, auto-start, packaging/installers, Waylan
 └───────────────▲──────────┘
                 │
 ┌───────────────┴──────────┐
-│ src/renderer/  (Worker 3) │  chat panel UI (HTML/CSS/JS, no framework required)
+│ src/renderer/  (W1/W2/W3) │  chat panel UI, split by subfolder (see section 3)
 └──────────────────────────┘
 ```
 
@@ -89,22 +89,28 @@ Tray features beyond Show panel / Quit, auto-start, packaging/installers, Waylan
 
 ## 3. Folder ownership
 
+This is the current ownership (UI phase). The v0 split, where Worker 3 owned all of `src/renderer/**` and `test/renderer/**`, ended when the UI phase started; 9.3 describes each worker's area, and this table is the one list of paths. CLAUDE.md repeats the worker rows. If the two disagree, this table wins and the lead fixes CLAUDE.md.
+
 | Path | Owner | What |
 |---|---|---|
-| `src/shared/contracts.js` | **Lead** | IPC channel names, data shapes, settings schema/defaults |
-| `src/preload/preload.js` | **Lead** | `window.proxy` bridge |
-| `src/main/index.js` | **Lead** | Composition root |
+| `src/shared/**` | **Lead** | `contracts.js`: IPC channel names, data shapes, settings schema/defaults |
+| `src/preload/**` | **Lead** | `preload.js`: the `window.proxy` bridge |
+| `src/main/index.js` | **Lead** | Main-process composition root |
+| `src/renderer/index.html`, `src/renderer/app.js` | **Lead** | Renderer composition root (mounts the workers' modules) |
 | `package.json`, `package-lock.json` | **Lead** | Scripts and dependencies (see CLAUDE.md for adding deps) |
-| `SPEC.md`, `CLAUDE.md`, `README.md` | **Lead** | Docs (workers may append to their own section in README via the lead) |
-| `test/shared/` | **Lead** | Contract tests |
-| `src/main/shell/**` | **Worker 1** | Hotkeys, capture, snip overlay, panel window |
-| `test/shell/**` | **Worker 1** | |
-| `src/main/core/**` | **Worker 2** | Settings, history, LLM provider |
-| `test/core/**` | **Worker 2** | |
-| `src/renderer/**` | **Worker 3** | Chat panel UI |
-| `test/renderer/**` | **Worker 3** | |
+| `src/renderer/package.json`, `test/renderer/package.json` | **Lead** | One line each (`{ "type": "module" }`) so Node treats renderer code and its tests as ES modules. Don't remove or change them. |
+| `SPEC.md`, `CLAUDE.md`, `README.md`, `.gitignore`, `.env.example` | **Lead** | Docs and repo config (workers may append to their own section in README via the lead) |
+| `test/shared/**` | **Lead** | Contract tests |
+| `src/main/shell/**` | **Worker 1** | Hotkeys, capture, snip overlay, frameless panel, docking and snapping, asset files (images and fonts) |
+| `src/renderer/keys/**`, `src/renderer/views/settings.js`, `src/renderer/lib/settings-form.js`, `src/renderer/lib/accelerator.js` | **Worker 1** | Command bar, keymap, Settings screen frame and General/Keys tabs |
+| `test/shell/**`, `test/renderer/keys/**`, `test/renderer/settings-form.test.js`, `test/renderer/accelerator.test.js` | **Worker 1** | |
+| `src/main/core/**` | **Worker 2** | Settings validation, history, pins, search, usage, prompt, LLM providers |
+| `src/renderer/render/**`, `src/renderer/usage/**`, `src/renderer/vendor/**`, `src/renderer/views/chat.js`, `src/renderer/views/sidebar.js`, `src/renderer/views/dom.js`, `src/renderer/lib/messages.js`, `src/renderer/lib/conversation.js`, `src/renderer/lib/folders.js` | **Worker 2** | Rich replies, usage meter, vendored libraries, chat list and sidebar |
+| `test/core/**`, `test/renderer/render/**`, `test/renderer/usage/**`, `test/renderer/messages.test.js`, `test/renderer/conversation.test.js`, `test/renderer/folders.test.js` | **Worker 2** | |
+| `src/renderer/theme/**`, `src/renderer/styles/**`, `src/renderer/assets/**` | **Worker 3** | Theme engine, themes, fonts, backgrounds, effects, all visual styling |
+| `test/renderer/theme/**` | **Worker 3** | |
 
-Each worker folder already contains a working **stub** from the scaffold so the app runs end to end today. Replace the stub's internals; keep its exported shape.
+Every tracked file falls under exactly one row. A new file outside these paths belongs to the lead until this table says otherwise, so ask before adding one.
 
 ---
 
@@ -204,7 +210,7 @@ Overlay IPC channels are private to Worker 1 and must use the prefix `overlay:`.
 
 Channel names live in `src/shared/contracts.js` (`INVOKE`, `EVENTS`). The renderer reaches them only through `window.proxy`, defined in `src/preload/preload.js`.
 
-### `window.proxy` API (what Worker 3 builds against)
+### `window.proxy` API (what the renderer builds against)
 
 | Call | Returns | Handled by |
 |---|---|---|
@@ -252,7 +258,9 @@ With `sendMode = wait`, step 2 instead adds the image as an attachment chip in t
 
 ---
 
-## 6. Renderer (Worker 3)
+## 6. Renderer
+
+Written for v0, when Worker 3 owned the whole renderer. The behaviour below still holds, but the files are now split between all three workers (section 3), and 9.5.6 lists the modules they talk through.
 
 - Layout: session sidebar (collapsible, since the panel is narrow), message list, composer (textarea + attachments + Send), toolbar (Snip, Full screenshot, New chat, Full-screen toggle, Hide, Settings).
 - Settings view: AI provider (Gemini or Claude (Pro)) and, for Claude (Pro), the Claude model; hotkeys (text inputs with accelerator strings; validate non-empty or empty-to-disable), send mode, panel visibility, answer style. Saves through `proxy.settings.update`.
@@ -325,7 +333,7 @@ Worker numbers keep their old main-process folders, so W1 still owns the shell a
 | **W1: Keys and panel** | Frameless panel, docking and snapping, global hotkeys, command bar, keymap, the Settings screen frame, asset files (images and fonts) | `src/main/shell/**`, `src/renderer/keys/**`, `src/renderer/views/settings.js`, `src/renderer/lib/settings-form.js`, `src/renderer/lib/accelerator.js` | `test/shell/**`, `test/renderer/keys/**`, `test/renderer/settings-form.test.js`, `test/renderer/accelerator.test.js` |
 | **W2: Replies and storage** | Settings validation, history, pins, search, usage tracking, the prompt, rich reply rendering, chat list and sidebar, the usage meter | `src/main/core/**`, `src/renderer/render/**`, `src/renderer/usage/**`, `src/renderer/vendor/**`, `src/renderer/views/chat.js`, `src/renderer/views/sidebar.js`, `src/renderer/views/dom.js`, `src/renderer/lib/messages.js`, `src/renderer/lib/conversation.js`, `src/renderer/lib/folders.js` | `test/core/**`, `test/renderer/render/**`, `test/renderer/usage/**`, and the existing `messages`, `conversation`, `folders` tests |
 | **W3: Look** | Theme engine, built-in themes, theme editor, fonts, backgrounds, effects, all visual styling | `src/renderer/theme/**`, `src/renderer/styles/**`, `src/renderer/assets/**` | `test/renderer/theme/**` |
-| **Lead** | Contracts and wiring | everything in section 3, plus `src/renderer/index.html` and `src/renderer/app.js` (they become the renderer's composition root in step 0) | `test/shared/**` |
+| **Lead** | Contracts and wiring | the lead rows of section 3 (contracts, preload, both composition roots, the three `package.json` files, docs and repo config) | `test/shared/**` |
 
 Rules that make the split work:
 - **Styling:** W3 owns how everything looks. W1 and W2 may add their own structural CSS (`src/renderer/keys/keys.css`, `src/renderer/render/render.css`, `src/renderer/usage/usage.css`: layout, sizes, overflow), but every color, font, shadow and radius in them must be a `var(--…)` from 9.5.1. They use the class names in 9.5.6 so W3 can style them from `styles/app.css`.
@@ -567,3 +575,12 @@ Then each worker opens small PRs in this order. "Done" for every PR: `npm test` 
 4. Backgrounds: pick an image through assets, fit, dim and blur, cleared when the asset is deleted.
 
 **Integration (lead):** after each merge, tell the other workers to pull `main`. The final check is the demo moment in 9.1 on Mint, plus a full keyboard-only pass of 9.6.
+
+### 9.9 Running on Mint: known caveats
+
+These come from the first check on Mint. Real Cinnamon has not had a full manual test pass yet, so treat this list as incomplete until the lead does the final check in 9.8.
+
+- **Log in to X11.** Pick "Cinnamon" at the login screen, not "Cinnamon on Wayland". Global hotkeys, the snip overlay and window placement all assume X11 (Wayland stays out of scope, section 1).
+- **`Ctrl+Alt+Space` may only flash the panel.** Cinnamon's focus-stealing prevention can stop an app from taking keyboard focus when a global hotkey fires, so the panel shows but the cursor may not land in the message box. That is why 9.6 calls `focusPanel` best effort on X11. Clicking the panel once still works.
+- **Super combos stay avoided.** The default hotkeys don't use Super, because Cinnamon's menu grabs it (section 1). This is fixed; it's listed so nobody brings Super defaults back.
+- **Drag snapping can fire too early.** Pausing near a corner while still holding the mouse can snap the panel before release. 9.2 item 5 says snapping happens on release, so this is a bug to fix in `src/main/shell/`, not intended behaviour.
