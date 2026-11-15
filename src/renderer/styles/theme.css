@@ -1,50 +1,97 @@
 /*
- * OWNER: Worker 3.
- * Design tokens only. A redesign should mostly mean editing this file.
- * Layout/components in app.css must use these variables, not raw colors.
+ * OWNER: Worker 3. Fallback token values (SPEC 9.5.1): the Dungeon theme with the default fonts.
+ * The theme engine (theme/index.js) overwrites these on :root at start and on every change.
+ * test/renderer/theme checks this block stays equal to what the engine computes for Dungeon.
  */
+@import url("../assets/fonts/fonts.css");
+
 :root {
-  /* Colors */
-  --bg: #16171a;
-  --surface: #1f2024;
-  --surface-2: #2a2c31;
-  --surface-hover: #33363c;
-  --border: #34363c;
-  --text: #e6e6e6;
-  --text-muted: #9a9ca3;
-  --accent: #6aa0ff;
-  --accent-text: #0d1117;
-  --danger: #ff6b6b;
-  --danger-bg: #3a1f22;
-  --warning: #e5b567;
-  --focus-ring: #6aa0ff80;
-  --overlay-shadow: #00000080;
-  --drop-target-bg: #6aa0ff26;
-  --drop-target-border: var(--accent);
+  color-scheme: light;
+  /* BEGIN ENGINE TOKENS */
+  --bg: #e8dfd2;
+  --surface: #f2ebe1;
+  --surface-2: #e5ded4;
+  --surface-hover: #dad2c9;
+  --border: #d3c6b4;
+  --text: #3a2e28;
+  --text-muted: #75665a;
+  --accent: #8e1b2a;
+  --accent-2: #b08d57;
+  --accent-text: #f7f1e8;
+  --danger: #a3202c;
+  --danger-bg: #dec4bb;
+  --warning: #7d5300;
+  --success: #2c6b34;
+  --focus-ring: #8e1b2a99;
+  --selection-bg: #8e1b2a38;
+  --overlay-shadow: #3a2e2847;
+  --drop-target-bg: #8e1b2a26;
+  --drop-target-border: #8e1b2a;
+  --answer-bg: #f7f1e8;
+  --answer-text: #2e231e;
+  --answer-border: #8e1b2a;
+  --bubble-user-bg: #e6d8c2;
+  --bubble-user-text: #3a2e28;
+  --bubble-assistant-bg: #f2ebe1;
+  --bubble-assistant-text: #3a2e28;
+  --bubble-error-bg: #dec4bb;
+  --bubble-error-text: #a3202c;
+  --code-bg: #ece3d6;
+  --code-text: #3a2e28;
+  --code-keyword: #8e1b2a;
+  --code-string: #6e4f1f;
+  --code-number: #8a4b12;
+  --code-comment: #75665a;
+  --code-function: #5a3a6e;
+  --math-text: #3a2e28;
+  --plot-axis: #75665a;
+  --plot-grid: #d3cabe;
+  --plot-1: #8e1b2a;
+  --plot-2: #9a7440;
+  --plot-3: #7d5300;
+  --plot-4: #2c6b34;
+  --glow: none;
+  --answer-glow: none;
+  --scanline-opacity: 0.35;
+  --vignette-opacity: 0.15;
+  --scanline-color: rgba(58, 46, 40, 0.16);
+  --vignette-color: rgba(58, 46, 40, 0.35);
+  --radius: 4px;
+  --radius-small: 2px;
+  --bg-image: none;
+  --bg-dim: 0.6;
+  --bg-blur: 0px;
+  --bg-fit: cover;
+  --font-title: "VT323", "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --size-title: 22px;
+  --weight-title: 400;
+  --font-ui: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --size-ui: 12px;
+  --font-answer: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --size-answer: 17px;
+  --weight-answer: 700;
+  --font-explanation: "IBM Plex Sans", "Ubuntu", system-ui, sans-serif;
+  --size-explanation: 14px;
+  --font-body: "IBM Plex Sans", "Ubuntu", system-ui, sans-serif;
+  --size-body: 14px;
+  --font-code: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --size-code: 13px;
+  /* END ENGINE TOKENS */
 
-  /* Bubbles */
-  --bubble-user-bg: #263248;
-  --bubble-user-text: var(--text);
-  --bubble-assistant-bg: var(--surface);
-  --bubble-assistant-text: var(--text);
-  --bubble-error-bg: var(--danger-bg);
-  --bubble-error-text: var(--danger);
-
-  /* Shape and spacing */
-  --radius: 8px;
-  --radius-small: 4px;
+  /* Shape and spacing (not themed yet) */
   --gap: 8px;
-  --toolbar-height: 40px;
+  --titlebar-height: 34px;
   --sidebar-width: 220px;
   --folder-indent: 12px;
   --thumb-height: 120px;
   --chip-size: 48px;
   --bubble-max-width: 92%;
 
-  /* Type */
-  --font: system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif;
-  --font-mono: ui-monospace, "DejaVu Sans Mono", monospace;
-  --font-size: 14px;
-  --font-size-small: 12px;
-  --font-size-heading: 16px;
+  /* Aliases kept so older CSS keeps working */
+  --font: var(--font-ui);
+  --font-mono: var(--font-code);
+  --font-size: var(--size-body);
+  --font-size-small: calc(var(--size-ui) - 1px);
+  --font-size-heading: calc(var(--size-ui) + 3px);
+  --toolbar-height: var(--titlebar-height);
 }
