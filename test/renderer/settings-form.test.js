@@ -51,3 +51,15 @@ test('provider and Claude model are included when their enums are given', () => 
   assert.equal(bad.ok, false);
   assert.deepEqual(Object.keys(bad.errors).sort(), ['claudeModel', 'provider']);
 });
+
+test('focusPanel is validated when the form has it and left out when it does not', () => {
+  const build = buildSettingsPatch;
+  const base = { sendMode: 'instant', panelVisibility: 'always', answerStyle: 'both' };
+  const withIt = build({ ...base, hotkeys: { regionSnip: 'Ctrl+Alt+S', fullScreenshot: '', togglePanel: '', focusPanel: 'ctrl+alt+space' } }, enums);
+  assert.equal(withIt.ok, true);
+  assert.equal(withIt.patch.hotkeys.focusPanel, 'Ctrl+Alt+Space');
+  const without = build({ ...base, hotkeys: { regionSnip: 'Ctrl+Alt+S', fullScreenshot: '', togglePanel: '' } }, enums);
+  assert.equal('focusPanel' in without.patch.hotkeys, false);
+  const dup = build({ ...base, hotkeys: { regionSnip: 'Ctrl+Alt+S', fullScreenshot: '', togglePanel: '', focusPanel: 'Ctrl+Alt+S' } }, enums);
+  assert.ok(dup.errors['hotkeys.focusPanel']);
+});

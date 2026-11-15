@@ -10,7 +10,7 @@
 const { globalShortcut, clipboard } = require('electron');
 const { INVOKE, EVENTS } = require('../../shared/contracts');
 const { createPanel } = require('./panel');
-const { createHotkeyManager } = require('./hotkeys');
+const { createHotkeyManager, withFallbacks } = require('./hotkeys');
 const { displayUnderCursor, grabDisplay, cropToSelection, toImageData } = require('./capture');
 const { openOverlay } = require('./overlay/overlay');
 const visibility = require('./visibility');
@@ -105,12 +105,23 @@ async function createShell({ settings, preloadPath, rendererHtmlPath }) {
     else panel.show();
   }
 
+  /**
+   * Ctrl+Alt+Space (SPEC 9.6): bring keyboard focus to the panel, showing it if
+   * needed; pressed again while the panel has focus, give focus back.
+   */
+  function focusPanel() {
+    if (capturing) return;
+    if (panel.isVisible() && panel.isFocused()) panel.blur();
+    else panel.focus();
+  }
+
   const hotkeys = createHotkeyManager({
     globalShortcut,
     handlers: {
       regionSnip: () => capture('region'),
       fullScreenshot: () => capture('fullscreen'),
       togglePanel,
+      focusPanel,
     },
     onError: (message) => sendToPanel(EVENTS.CAPTURE_ERROR, { message }),
   });
@@ -122,10 +133,11 @@ async function createShell({ settings, preloadPath, rendererHtmlPath }) {
     if (visibility.showAtStart(mode)) panel.show();
 
     // Register after the panel has loaded so failures reach the chat as errors.
-    hotkeys.apply(s.hotkeys);
+    hotkeys.apply(withFallbacks(s.hotkeys));
 
     unsubscribe = settings.onChange((next) => {
-      hotkeys.apply(next.hotkeys);
+      hotkeys.apply(withFallbacks(next.hotkeys));
+      panel.applySettings(next);
       if (visibility.onModeChange(mode, next.panelVisibility) === 'show') panel.show();
       mode = next.panelVisibility;
     });
@@ -146,6 +158,7 @@ async function createShell({ settings, preloadPath, rendererHtmlPath }) {
       return panel.state();
     });
     ipcMain.handle(INVOKE.WINDOW_GET_STATE, () => panel.state());
+    ipcMain.handle(INVOKE.WINDOW_DOCK, (_e, arg) => panel.dock(arg && arg.dock));
     ipcMain.handle(INVOKE.CLIPBOARD_WRITE_TEXT, (_e, arg) => {
       clipboard.writeText(String((arg && arg.text) ?? ''));
       return { ok: true };

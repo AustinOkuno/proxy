@@ -102,3 +102,126 @@ test('initialPanelBounds fits the default into a small screen', () => {
   assert.equal(b.height, 500);
   assert.equal(b.y, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Docking and snapping
+// ---------------------------------------------------------------------------
+
+const WA = { x: 0, y: 0, width: 1920, height: 1040 };
+const SIZE = { width: 420, height: 640 };
+
+test('dockBounds puts the panel in each corner, margin px from the edges', () => {
+  assert.deepEqual(g.dockBounds('top-left', SIZE, WA, 16), { x: 16, y: 16, width: 420, height: 640 });
+  assert.deepEqual(g.dockBounds('top-right', SIZE, WA, 16), { x: 1920 - 420 - 16, y: 16, width: 420, height: 640 });
+  assert.deepEqual(g.dockBounds('bottom-left', SIZE, WA, 16), { x: 16, y: 1040 - 640 - 16, width: 420, height: 640 });
+  assert.deepEqual(g.dockBounds('bottom-right', SIZE, WA, 0), { x: 1500, y: 400, width: 420, height: 640 });
+});
+
+test('dockBounds works on a second display with an offset and shrinks to fit', () => {
+  const second = { x: 1920, y: -200, width: 1280, height: 600 };
+  assert.deepEqual(g.dockBounds('top-right', SIZE, second, 16), {
+    x: 1920 + 1280 - 420 - 16, y: -200 + 16, width: 420, height: 600 - 32,
+  });
+  assert.deepEqual(g.dockBounds('bottom-left', SIZE, second, 16), { x: 1936, y: -200 + 16, width: 420, height: 568 });
+});
+
+test('snapCorner picks the corner within the snap distance, or null', () => {
+  const near = (corner, dx, dy) => {
+    const b = g.dockBounds(corner, SIZE, WA, 16);
+    return { ...b, x: b.x + dx, y: b.y + dy };
+  };
+  assert.equal(g.snapCorner(near('top-right', -30, 40), WA, 48, 16), 'top-right');
+  assert.equal(g.snapCorner(near('top-left', 48, 48), WA, 48, 16), 'top-left');
+  assert.equal(g.snapCorner(near('bottom-left', 10, -10), WA, 48, 16), 'bottom-left');
+  assert.equal(g.snapCorner(near('bottom-right', 5, 5), WA, 48, 16), 'bottom-right'); // past the margin still snaps
+  assert.equal(g.snapCorner(near('top-right', -49, 0), WA, 48, 16), null);
+  assert.equal(g.snapCorner({ x: 700, y: 200, ...SIZE }, WA, 48, 16), null);
+});
+
+test('snapCorner on a second display uses that display', () => {
+  const second = { x: 1920, y: 0, width: 1280, height: 1024 };
+  const b = { x: 1920 + 20, y: 1024 - 640 - 30, ...SIZE };
+  assert.equal(g.snapCorner(b, second, 48, 16), 'bottom-left');
+  assert.equal(g.snapCorner(b, WA, 48, 16), null);
+});
+
+test('workAreaFor picks the display the panel overlaps most, else the nearest', () => {
+  const a = { x: 0, y: 0, width: 1920, height: 1040 };
+  const b = { x: 1920, y: 0, width: 1280, height: 1024 };
+  assert.equal(g.workAreaFor({ x: 1800, y: 100, ...SIZE }, [a, b], a), b);
+  assert.equal(g.workAreaFor({ x: 1600, y: 100, ...SIZE }, [a, b], a), a);
+  assert.equal(g.workAreaFor({ x: 5000, y: 100, ...SIZE }, [a, b], a), b);
+  assert.equal(g.workAreaFor({ x: NaN, y: 0, ...SIZE }, [a, b], a), a);
+});
+
+test('settlePanel: releasing a drag near a corner docks there', () => {
+  const prev = g.dockBounds('top-right', SIZE, WA, 16);
+  const next = { x: 30, y: 1040 - 640 - 40, ...SIZE };
+  const r = g.settlePanel({ prev, next, dock: 'top-right', snap: true, workArea: WA, snapDistance: 48, margin: 16 });
+  assert.equal(r.dock, 'bottom-left');
+  assert.deepEqual(r.bounds, g.dockBounds('bottom-left', SIZE, WA, 16));
+});
+
+test('settlePanel: releasing a drag in the middle goes free and stays put', () => {
+  const prev = g.dockBounds('top-right', SIZE, WA, 16);
+  const next = { x: 700, y: 200, ...SIZE };
+  const r = g.settlePanel({ prev, next, dock: 'top-right', snap: true, workArea: WA, snapDistance: 48, margin: 16 });
+  assert.deepEqual(r, { dock: 'free', bounds: next });
+});
+
+test('settlePanel: with snapping off a drag near a corner stays free', () => {
+  const prev = { x: 700, y: 200, ...SIZE };
+  const next = { x: 20, y: 20, ...SIZE };
+  const r = g.settlePanel({ prev, next, dock: 'free', snap: false, workArea: WA, snapDistance: 48, margin: 16 });
+  assert.deepEqual(r, { dock: 'free', bounds: next });
+});
+
+test('settlePanel: resizing a docked panel keeps it in its corner', () => {
+  const prev = g.dockBounds('top-right', SIZE, WA, 16);
+  // Dragging the left edge outwards: x and width change.
+  const next = { x: prev.x - 100, y: prev.y, width: 520, height: 640 };
+  const r = g.settlePanel({ prev, next, dock: 'top-right', snap: true, workArea: WA, snapDistance: 48, margin: 16 });
+  assert.equal(r.dock, 'top-right');
+  assert.deepEqual(r.bounds, g.dockBounds('top-right', { width: 520, height: 640 }, WA, 16));
+  // Dragging the right edge of a top-right panel past the margin snaps it back in.
+  const wider = { x: prev.x, y: prev.y, width: 450, height: 640 };
+  const r2 = g.settlePanel({ prev, next: wider, dock: 'top-right', snap: true, workArea: WA, snapDistance: 48, margin: 16 });
+  assert.equal(r2.bounds.x + r2.bounds.width, 1920 - 16);
+});
+
+test('settlePanel: resizing a free panel keeps it free and where it is', () => {
+  const prev = { x: 700, y: 200, ...SIZE };
+  const next = { x: 700, y: 200, width: 500, height: 600 };
+  const r = g.settlePanel({ prev, next, dock: 'free', snap: true, workArea: WA, snapDistance: 48, margin: 16 });
+  assert.deepEqual(r, { dock: 'free', bounds: next });
+});
+
+test('settlePanel: nothing changed keeps the dock', () => {
+  const b = g.dockBounds('bottom-right', SIZE, WA, 16);
+  assert.deepEqual(
+    g.settlePanel({ prev: b, next: b, dock: 'bottom-right', snap: true, workArea: WA, snapDistance: 48, margin: 16 }),
+    { dock: 'bottom-right', bounds: b },
+  );
+});
+
+test('initialPanelBounds opens a docked panel top right by default, keeping the saved size', () => {
+  const def = { width: 420, height: 640 };
+  assert.deepEqual(
+    g.initialPanelBounds(null, [WA], WA, def, { dock: 'top-right', margin: 16 }),
+    { x: 1920 - 420 - 16, y: 16, width: 420, height: 640 },
+  );
+  const saved = { x: 100, y: 100, width: 500, height: 700 };
+  assert.deepEqual(
+    g.initialPanelBounds(saved, [WA], WA, def, { dock: 'bottom-left', margin: 16 }),
+    { x: 16, y: 1040 - 700 - 16, width: 500, height: 700 },
+  );
+  // Saved on the second display: docks on that display.
+  const second = { x: 1920, y: 0, width: 1280, height: 1024 };
+  const onSecond = { x: 2000, y: 100, width: 500, height: 700 };
+  assert.deepEqual(
+    g.initialPanelBounds(onSecond, [WA, second], WA, def, { dock: 'top-left', margin: 16 }),
+    { x: 1936, y: 16, width: 500, height: 700 },
+  );
+  // 'free' keeps the old behaviour.
+  assert.deepEqual(g.initialPanelBounds(saved, [WA], WA, def, { dock: 'free', margin: 16 }), saved);
+});

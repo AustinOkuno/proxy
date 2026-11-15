@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createHotkeyManager, validateAccelerator } = require('../../src/main/shell/hotkeys');
+const { createHotkeyManager, validateAccelerator, withFallbacks } = require('../../src/main/shell/hotkeys');
 
 function fakeShortcut({ taken = [] } = {}) {
   const map = new Map();
@@ -31,6 +31,7 @@ function setup(opts) {
       regionSnip: () => calls.push('region'),
       fullScreenshot: () => calls.push('full'),
       togglePanel: () => calls.push('toggle'),
+      focusPanel: () => calls.push('focus'),
     },
     onError: (m) => errors.push(m),
     log: quietLog,
@@ -54,12 +55,13 @@ test('validateAccelerator', () => {
 
 test('registers all hotkeys and calls the right handlers', () => {
   const { gs, calls, errors, mgr } = setup();
-  const r = mgr.apply(DEFAULTS);
-  assert.deepEqual(r, { regionSnip: 'ok', fullScreenshot: 'ok', togglePanel: 'ok' });
+  const r = mgr.apply({ ...DEFAULTS, focusPanel: 'Ctrl+Alt+Space' });
+  assert.deepEqual(r, { regionSnip: 'ok', fullScreenshot: 'ok', togglePanel: 'ok', focusPanel: 'ok' });
   gs.map.get('Super+Shift+S')();
   gs.map.get('Super+Shift+A')();
   gs.map.get('Super+Shift+P')();
-  assert.deepEqual(calls, ['region', 'full', 'toggle']);
+  gs.map.get('Ctrl+Alt+Space')();
+  assert.deepEqual(calls, ['region', 'full', 'toggle', 'focus']);
   assert.deepEqual(errors, []);
 });
 
@@ -76,7 +78,7 @@ test('a taken hotkey reports a readable error naming the key and keeps the other
 test('empty disables, invalid and duplicates are reported', () => {
   const { gs, errors, mgr } = setup();
   const r = mgr.apply({ regionSnip: '', fullScreenshot: 'Ctrl+Nope', togglePanel: 'Alt+X' });
-  assert.deepEqual(r, { regionSnip: 'disabled', fullScreenshot: 'invalid', togglePanel: 'ok' });
+  assert.deepEqual(r, { regionSnip: 'disabled', fullScreenshot: 'invalid', togglePanel: 'ok', focusPanel: 'disabled' });
   assert.equal(errors.length, 1);
 
   const r2 = mgr.apply({ regionSnip: 'Alt+Y', fullScreenshot: 'alt+y', togglePanel: 'Alt+X' });
@@ -93,4 +95,19 @@ test('re-applying the same config does nothing; a change re-registers', () => {
   assert.ok(!gs.map.has('Super+Shift+S'));
   mgr.dispose();
   assert.equal(gs.map.size, 0);
+});
+
+test('withFallbacks fills a missing focusPanel but keeps an empty one (disabled)', () => {
+  assert.equal(withFallbacks(DEFAULTS).focusPanel, 'Ctrl+Alt+Space');
+  assert.equal(withFallbacks({ ...DEFAULTS, focusPanel: '' }).focusPanel, '');
+  assert.equal(withFallbacks({ ...DEFAULTS, focusPanel: 'Ctrl+Alt+F' }).focusPanel, 'Ctrl+Alt+F');
+  assert.equal(withFallbacks(undefined).focusPanel, 'Ctrl+Alt+Space');
+  assert.equal(withFallbacks(DEFAULTS).regionSnip, 'Super+Shift+S');
+});
+
+test('a focusPanel key equal to a capture key is reported as a duplicate', () => {
+  const { errors, mgr } = setup();
+  const r = mgr.apply({ ...DEFAULTS, focusPanel: 'super+shift+s' });
+  assert.equal(r.focusPanel, 'duplicate');
+  assert.match(errors[0], /Focus panel/);
 });

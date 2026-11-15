@@ -1,4 +1,4 @@
-// OWNER: Worker 3. Turns the settings form's values into a SettingsPatch. Pure, no DOM.
+// OWNER: Worker 1 (UI phase). Turns the settings form's values into a SettingsPatch. Pure, no DOM.
 
 import { validateAccelerator, duplicateHotkeys } from './accelerator.js';
 
@@ -6,6 +6,8 @@ export const HOTKEY_FIELDS = [
   { name: 'regionSnip', label: 'Region snip' },
   { name: 'fullScreenshot', label: 'Full screenshot' },
   { name: 'togglePanel', label: 'Show/hide panel' },
+  // Optional: older settings don't have it, and the patch only carries it when the form does.
+  { name: 'focusPanel', label: 'Focus the panel (press again to give focus back)', optional: true, fallback: 'Ctrl+Alt+Space' },
 ];
 
 export const SEND_MODE_LABELS = {
@@ -48,8 +50,10 @@ export const CLAUDE_MODEL_LABELS = {
 export function buildSettingsPatch(values, enums) {
   const errors = {};
   const hotkeys = {};
-  for (const { name } of HOTKEY_FIELDS) {
-    const v = validateAccelerator(values.hotkeys ? values.hotkeys[name] : '');
+  for (const { name, optional } of HOTKEY_FIELDS) {
+    const raw = values.hotkeys ? values.hotkeys[name] : undefined;
+    if (optional && raw === undefined) continue;
+    const v = validateAccelerator(raw ?? '');
     if (v.ok) hotkeys[name] = v.value;
     else errors[`hotkeys.${name}`] = v.error;
   }

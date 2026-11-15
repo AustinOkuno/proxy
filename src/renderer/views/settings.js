@@ -1,4 +1,4 @@
-// OWNER: Worker 3. Settings screen: AI provider and model, hotkeys, send mode, panel visibility, answer style.
+// OWNER: Worker 1 (UI phase). Settings screen: AI provider and model, hotkeys, send mode, panel visibility, answer style.
 
 import { el } from './dom.js';
 import { hotkeyWarning, keyEventToAccelerator } from '../lib/accelerator.js';
@@ -149,8 +149,9 @@ export function createSettingsView({ form, status, constants, save, close }) {
   }
 
   function fill(settings) {
-    for (const { name } of HOTKEY_FIELDS) {
-      hotkeyInputs[name].value = (settings.hotkeys && settings.hotkeys[name]) || '';
+    for (const { name, fallback } of HOTKEY_FIELDS) {
+      const saved = settings.hotkeys ? settings.hotkeys[name] : undefined;
+      hotkeyInputs[name].value = saved ?? fallback ?? '';
       updateWarning(name);
     }
     for (const field of RADIO_FIELDS) {
