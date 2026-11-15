@@ -1,4 +1,4 @@
-// OWNER: Worker 3. Pure helpers for rendering chat messages. No DOM, no window.proxy,
+// OWNER: Worker 2 (UI phase). Pure helpers for rendering chat messages. No DOM, no window.proxy,
 // so they can be unit-tested with `node --test`.
 
 /** @typedef {import('../../shared/contracts.js').Message} Message */
@@ -71,4 +71,16 @@ export function formatSessionTime(ms, now = Date.now()) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   if (d.getFullYear() === n.getFullYear()) return `${months[d.getMonth()]} ${d.getDate()}`;
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Whether a reply's explanation is collapsed: a per-reply choice made by
+ * clicking its label wins over the Ctrl+E state for all replies.
+ * @param {boolean} all            settings.panel.explanationCollapsed
+ * @param {Map<string, boolean>} overrides
+ * @param {string} [messageId]
+ */
+export function explanationCollapsed(all, overrides, messageId) {
+  if (messageId && overrides && overrides.has(messageId)) return !!overrides.get(messageId);
+  return !!all;
 }

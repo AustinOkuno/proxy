@@ -7,14 +7,26 @@
 
 const { ANSWER_STYLES } = require('../../../shared/contracts');
 
+/** How to format the text inside answer and explanation (SPEC 9.7). */
+const FORMAT_INSTRUCTION = [
+  'Both fields are Markdown: headings, lists, tables and bold are fine. Raw HTML is shown as plain text, so do not use it.',
+  'Math: $...$ inline and $$...$$ for a displayed equation, in LaTeX (for example $\\frac{a}{b}$, $x^2$).',
+  'Chemistry: \\ce{...} inside math, for example $\\ce{2H2 + O2 -> 2H2O}$ or $\\ce{SO4^2-}$.',
+  'Code: fenced code blocks with a language, for example ```python.',
+  'Because the reply is JSON, every backslash inside the strings must be escaped (write \\\\frac, \\\\ce).',
+].join('\n');
+
 const BASE_INSTRUCTION = [
-  'You are Proxy, a desktop assistant. The user sends questions and screenshots of their screen.',
+  'You are Proxy, a study tutor in a small panel beside the user\'s work (often chemistry practice problems).',
+  'The user sends questions and screenshots of their screen.',
   'If a message is only a screenshot with no text, work out what the user most likely wants from it',
   '(for example: answer the question shown, explain the error, summarise the content) and do that.',
   'Reply as a JSON object with exactly two string fields:',
-  '"answer": the direct answer, short and to the point (the final result, value, choice, fix or command).',
-  '"explanation": the reasoning or steps that justify the answer.',
-  'Both fields may use plain Markdown. Do not repeat the answer at length inside the explanation.',
+  '"answer": the shortest complete result, shown big at the top: a number with units, a balanced equation,',
+  'a choice letter, a fix or a command. One line when possible; no steps or reasoning here.',
+  '"explanation": the steps that get to the answer, short and clear, shown smaller under it.',
+  'Do not repeat the answer at length inside the explanation.',
+  FORMAT_INSTRUCTION,
 ].join('\n');
 
 const STYLE_HINT = {
@@ -76,22 +88,48 @@ function stripFence(text) {
 }
 
 /**
+ * Undo the usual way a model breaks LaTeX inside JSON: writing \frac instead of
+ * \\frac. JSON reads "\f", "\b", "\t", "\r" as control characters, which never
+ * belong in a reply, so a control character followed by a letter goes back to
+ * a backslash and the letter. ("\n" is left alone: it is a real newline far more often.)
+ */
+function repairLatex(s) {
+  return s
+    .replace(/\f/g, '\\f')
+    .replace(/\x08/g, '\\b')
+    .replace(/\t(?=[a-z])/g, '\\t')
+    .replace(/\r(?=[a-z])/g, '\\r');
+}
+
+/** Escape backslashes that don't start a valid JSON escape (\ce, \sqrt, \alpha ...). */
+function escapeStrayBackslashes(text) {
+  return text.replace(/\\(\\|["/bfnrt]|u[0-9a-fA-F]{4})|\\/g, (m, ok) => (ok ? m : '\\\\'));
+}
+
+function tryParse(text) {
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)
+      && (typeof obj.answer === 'string' || typeof obj.explanation === 'string')) {
+      return obj;
+    }
+  } catch { /* not JSON */ }
+  return null;
+}
+
+/**
  * Parse the model's text into { answer, explanation }. Falls back to putting
  * the whole text in `answer` if it isn't the expected JSON.
  * @returns {import('../../../shared/contracts').ProviderReply}
  */
 function parseReply(text) {
   const raw = String(text == null ? '' : text);
-  try {
-    const obj = JSON.parse(stripFence(raw));
-    if (obj && typeof obj === 'object' && !Array.isArray(obj)
-      && (typeof obj.answer === 'string' || typeof obj.explanation === 'string')) {
-      return {
-        answer: typeof obj.answer === 'string' ? obj.answer.trim() : '',
-        explanation: typeof obj.explanation === 'string' ? obj.explanation.trim() : '',
-      };
-    }
-  } catch { /* fall through */ }
+  const body = stripFence(raw);
+  const obj = tryParse(body) || tryParse(escapeStrayBackslashes(body));
+  if (obj) {
+    const field = (v) => (typeof v === 'string' ? repairLatex(v).trim() : '');
+    return { answer: field(obj.answer), explanation: field(obj.explanation) };
+  }
   return { answer: raw.trim(), explanation: '' };
 }
 
@@ -108,4 +146,4 @@ function applyStyle(reply, answerStyle) {
   return { answer, explanation };
 }
 
-module.exports = { systemInstruction, buildContents, parseReply, applyStyle, assistantTurnText };
+module.exports = { FORMAT_INSTRUCTION, systemInstruction, buildContents, parseReply, applyStyle, assistantTurnText };

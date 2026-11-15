@@ -1,2 +1,99 @@
-/* OWNER: Worker 2 (UI phase). Structural CSS for rich replies (.rich, .rich-math, .rich-code, .rich-plot).
-   Colors, fonts, shadows and radii only through var(--...) tokens (SPEC 9.5.1). */
+/* OWNER: Worker 2 (UI phase). Structural CSS for rich replies (.rich, .rich-math, .rich-code, .rich-plot)
+   and the answer-first layout. Colors, fonts, shadows and radii only through var(--...) tokens (SPEC 9.5.1);
+   Worker 3 owns the look in styles/app.css. */
+
+/* ---- Answer first ------------------------------------------------------ */
+.reply-answer .rich {
+  font-family: var(--font-answer);
+  font-size: var(--size-answer, 17px);
+  font-weight: var(--weight-answer, 700);
+  color: var(--answer-text);
+  text-shadow: var(--answer-glow);
+}
+.reply-answer {
+  background: var(--answer-bg);
+  border: 1px solid var(--answer-border);
+  border-radius: var(--radius-small);
+  padding: calc(var(--gap) * 0.75);
+}
+.reply-explanation .rich {
+  font-family: var(--font-explanation);
+  font-size: var(--size-explanation);
+}
+.reply-explanation.collapsed .rich { display: none; }
+.reply-explanation.collapsed .reply-head { margin-bottom: 0; }
+.reply-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.reply-toggle::before { content: '▾ '; }
+.reply-explanation.collapsed .reply-toggle::before { content: '▸ '; }
+
+/* ---- Rich Markdown ----------------------------------------------------- */
+.rich { overflow-wrap: anywhere; user-select: text; min-width: 0; }
+.rich > :first-child { margin-top: 0; }
+.rich > :last-child { margin-bottom: 0; }
+.rich p, .rich ul, .rich ol, .rich blockquote, .rich pre, .rich .rich-table, .rich .rich-math.display {
+  margin: 0 0 calc(var(--gap) * 0.75);
+}
+.rich ul, .rich ol { padding-left: calc(var(--gap) * 1.5); }
+.rich li + li { margin-top: calc(var(--gap) / 4); }
+.rich .rich-heading { margin: var(--gap) 0 calc(var(--gap) / 2); font-family: var(--font-title); }
+.rich blockquote {
+  padding-left: var(--gap);
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+}
+.rich hr { border: 0; border-top: 1px solid var(--border); margin: var(--gap) 0; }
+.rich .rich-link { text-decoration: underline dotted; }
+
+/* ---- Code -------------------------------------------------------------- */
+.rich .rich-codespan {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-small);
+  padding: 0 0.25em;
+}
+.rich .rich-code {
+  font-family: var(--font-code);
+  font-size: var(--size-code);
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-small);
+  padding: calc(var(--gap) * 0.75);
+  overflow-x: auto;
+  white-space: pre;
+  /* Code keeps its own size inside the big answer block. */
+  font-weight: normal;
+  text-shadow: none;
+}
+.rich .rich-code code { font: inherit; }
+.rich .hljs-keyword, .rich .hljs-built_in, .rich .hljs-literal, .rich .hljs-meta { color: var(--code-keyword); }
+.rich .hljs-string, .rich .hljs-regexp { color: var(--code-string); }
+.rich .hljs-number { color: var(--code-number); }
+.rich .hljs-comment { color: var(--code-comment); font-style: italic; }
+.rich .hljs-title, .rich .hljs-function { color: var(--code-function); }
+
+/* ---- Math -------------------------------------------------------------- */
+.rich .rich-math { color: var(--math-text); }
+.rich .rich-math.display { display: block; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.rich .rich-math math { font-size: 1.1em; }
+.rich .rich-math-error { font-family: var(--font-code); color: var(--danger); }
+
+/* ---- Tables ------------------------------------------------------------ */
+.rich .rich-table { overflow-x: auto; }
+.rich .rich-table table { border-collapse: collapse; }
+.rich .rich-table th, .rich .rich-table td {
+  border: 1px solid var(--border);
+  padding: calc(var(--gap) / 4) calc(var(--gap) / 2);
+  text-align: left;
+}
+.rich .rich-table .align-center { text-align: center; }
+.rich .rich-table .align-right { text-align: right; }
+.rich .rich-table th { background: var(--surface-2); }
