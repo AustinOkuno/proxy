@@ -5,7 +5,9 @@
  *
  * Only what each backend really reports is shown:
  * - Claude (Pro): the Claude Code CLI prints `rate_limit_event` lines in its
- *   stream-json output. We keep the latest one per window (5-hour, weekly).
+ *   stream-json output. Current versions list the 5-hour and weekly windows
+ *   together in `unifiedWindows`; older ones send one window per event in
+ *   `rateLimitType`. We keep the latest report per window (5-hour, weekly).
  *   Nothing is known before the first reply of the session's first run.
  *   Proxy never calls Anthropic to ask.
  * - Gemini: the API has no "quota left" call, so we count requests and tokens
@@ -58,11 +60,50 @@ function toMs(v) {
   return null;
 }
 
+const STATUSES = Object.freeze(['allowed', 'allowed_warning', 'rejected']);
+// Windows the CLI may list in rate_limit_info.unifiedWindows. The store keeps
+// only the ones in CLAUDE_WINDOWS; the rest are passed on and ignored.
+const UNIFIED_WINDOW_IDS = Object.freeze(['five_hour', 'seven_day', 'seven_day_overage_included']);
+
+/**
+ * Top-level utilization: a fraction, but some older CLI versions sent a
+ * percentage. Current versions can send a little over 1 when usage runs past
+ * a window's cap, so only values above 2 are read as percentages.
+ */
+function readUtilization(v) {
+  if (!isNum(v) || v < 0) return null;
+  if (v > 2 && v <= 100) return clamp01(v / 100);
+  return clamp01(v);
+}
+
+/**
+ * One entry of rate_limit_info.unifiedWindows (utilization is a fraction that
+ * can pass 1, resetsAt is epoch seconds, status is optional).
+ * @returns {{ type: string, status: string, resetsAt: number|null, utilization: number|null } | null}
+ */
+function parseUnifiedWindow(type, w, fallbackStatus) {
+  if (!isObj(w)) return null;
+  const utilization = readUtilization(w.utilization);
+  const resetsAt = toMs(w.resetsAt);
+  if (utilization === null && resetsAt === null) return null;
+  let status = STATUSES.includes(w.status) ? w.status : fallbackStatus;
+  if (!status) status = 'allowed';
+  return { type, status, resetsAt, utilization };
+}
+
 /**
  * Read one stream-json line from the Claude CLI. Returns the rate limit it
  * reports, or null if it isn't a usable rate_limit_event.
+ *
+ * Current CLIs send `rate_limit_info.unifiedWindows` with the 5-hour and
+ * weekly windows together ({ five_hour: { utilization, resetsAt, status? },
+ * seven_day: {...} }), and may leave out `rateLimitType`. Those go in
+ * `windows`. The top-level fields (older CLIs, and the window that triggered
+ * the event) stay in type/status/resetsAt/utilization; `type` is null when
+ * the CLI didn't name one.
  * @param {any} ev  parsed JSON line
- * @returns {{ type: string, status: string, resetsAt: number|null, utilization: number|null } | null}
+ * @returns {{ type: string|null, status: string|null, resetsAt: number|null, utilization: number|null,
+ *   windows: Array<{ type: string, status: string, resetsAt: number|null, utilization: number|null }> } | null}
  */
 function parseRateLimitEvent(ev) {
   if (!isObj(ev) || ev.type !== 'rate_limit_event') return null;
@@ -70,15 +111,23 @@ function parseRateLimitEvent(ev) {
   if (!info) return null;
   const type = typeof info.rateLimitType === 'string' ? info.rateLimitType : null;
   const status = typeof info.status === 'string' ? info.status : null;
-  if (!type || !status) return null;
-  let utilization = isNum(info.utilization) ? info.utilization : null;
-  // Some versions report a percentage.
-  if (utilization !== null && utilization > 1 && utilization <= 100) utilization /= 100;
+
+  const windows = [];
+  if (isObj(info.unifiedWindows)) {
+    for (const id of UNIFIED_WINDOW_IDS) {
+      // The top-level status belongs to the window that triggered the event.
+      const w = parseUnifiedWindow(id, info.unifiedWindows[id], id === type ? status : null);
+      if (w) windows.push(w);
+    }
+  }
+
+  if (!(type && status) && !windows.length) return null;
   return {
-    type,
+    type: type && status ? type : null,
     status,
     resetsAt: toMs(info.resetsAt),
-    utilization: utilization === null ? null : clamp01(utilization),
+    utilization: readUtilization(info.utilization),
+    windows,
   };
 }
 
@@ -201,12 +250,35 @@ function createUsageStore({ dataDir, logger = console, now = Date.now }) {
       changed();
     },
 
-    /** A rate_limit_event from the Claude CLI (already parsed). Unknown window types are ignored. */
+    /**
+     * A rate_limit_event from the Claude CLI (already parsed). Records the
+     * top-level window and every unifiedWindows entry; unknown window types
+     * are ignored. Only the top-level status means requests are refused.
+     */
     recordClaudeRateLimit(info) {
-      if (!info || !CLAUDE_WINDOWS.some((w) => w.id === info.type)) return;
-      state.claude[info.type] = { status: info.status, resetsAt: info.resetsAt, utilization: info.utilization, at: now() };
-      if (info.status === 'rejected' && info.resetsAt) state.limitedUntil[PROVIDERS.CLAUDE_PRO] = info.resetsAt;
-      changed();
+      if (!isObj(info)) return;
+      const known = (t) => CLAUDE_WINDOWS.some((w) => w.id === t);
+      const at = now();
+      let touched = false;
+      if (known(info.type) && typeof info.status === 'string') {
+        const resetsAt = isNum(info.resetsAt) ? info.resetsAt : null;
+        const utilization = isNum(info.utilization) ? clamp01(info.utilization) : null;
+        state.claude[info.type] = { status: info.status, resetsAt, utilization, at };
+        if (info.status === 'rejected' && resetsAt) state.limitedUntil[PROVIDERS.CLAUDE_PRO] = resetsAt;
+        touched = true;
+      }
+      for (const w of Array.isArray(info.windows) ? info.windows : []) {
+        if (!isObj(w) || !known(w.type) || typeof w.status !== 'string') continue;
+        const prev = w.type === info.type ? state.claude[w.type] : null;
+        state.claude[w.type] = {
+          status: w.status,
+          resetsAt: isNum(w.resetsAt) ? w.resetsAt : (prev ? prev.resetsAt : null),
+          utilization: isNum(w.utilization) ? clamp01(w.utilization) : (prev ? prev.utilization : null),
+          at,
+        };
+        touched = true;
+      }
+      if (touched) changed();
     },
 
     /** The provider refused for being over its limit; it is limited until `untilMs`. */
