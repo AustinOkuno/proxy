@@ -115,3 +115,40 @@
 .rich .rich-plot-legend { display: flex; flex-wrap: wrap; gap: calc(var(--gap) / 2) var(--gap); margin-top: calc(var(--gap) / 4); }
 .rich .rich-plot-key::before { content: '■ '; }
 .rich .rich-plot-note { color: var(--text-muted); margin: 0 0 calc(var(--gap) / 4); }
+
+/* ---- Search box (Ctrl+F / Ctrl+P) and pins: structure only; W3 styles the look ---- */
+.search-box {
+  position: absolute;
+  top: calc(var(--titlebar-height, 40px) + var(--gap));
+  left: var(--gap);
+  right: var(--gap);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--overlay-shadow);
+  padding: calc(var(--gap) / 2);
+}
+.search-box[hidden] { display: none; }
+.search-input {
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  padding: calc(var(--gap) / 2);
+}
+.search-status:empty { display: none; }
+.search-status { padding: calc(var(--gap) / 2) calc(var(--gap) / 4) 0; }
+.search-results { list-style: none; margin: calc(var(--gap) / 2) 0 0; padding: 0; overflow-y: auto; min-height: 0; }
+.search-hit { padding: calc(var(--gap) / 2); border-radius: var(--radius-small); cursor: pointer; }
+.search-hit.active, .search-hit:hover { background: var(--surface-hover); }
+.search-hit-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-hit-snippet { overflow-wrap: anywhere; }
+.search-mark { background: var(--selection-bg, var(--accent)); color: var(--accent-text); border-radius: var(--radius-small); }
+.row.search-target > .bubble { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pin.is-pinned { color: var(--accent); }
