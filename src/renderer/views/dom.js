@@ -1,4 +1,4 @@
-// OWNER: Worker 3. Tiny DOM builder. Text always goes in via textContent, never innerHTML,
+// OWNER: Worker 2 (UI phase). Tiny DOM builder. Text always goes in via textContent, never innerHTML,
 // so model output and session titles can't inject markup.
 
 /**

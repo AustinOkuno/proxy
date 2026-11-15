@@ -48,3 +48,13 @@ test('a stopped reply gets its own bubble kind', () => {
   assert.equal(bubbleKind({ role: 'assistant', stopped: true, error: 'x' }), 'error');
   assert.equal(bubbleKind({ role: 'assistant', pending: true, stopping: true }), 'pending');
 });
+
+test('explanationCollapsed: a per-reply choice wins over the Ctrl+E state', async () => {
+  const { explanationCollapsed } = await import('../../src/renderer/lib/messages.js');
+  const o = new Map([['m1', false], ['m2', true]]);
+  assert.equal(explanationCollapsed(true, o, 'm1'), false);
+  assert.equal(explanationCollapsed(false, o, 'm2'), true);
+  assert.equal(explanationCollapsed(true, o, 'm3'), true);
+  assert.equal(explanationCollapsed(false, o, undefined), false);
+  assert.equal(explanationCollapsed(true, null, 'm1'), true);
+});

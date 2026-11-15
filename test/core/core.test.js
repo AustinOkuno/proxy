@@ -92,7 +92,7 @@ test('registerIpc handles every Worker 2 channel and emits events', async () => 
 
   for (const ch of ['CHAT_SEND', 'HISTORY_LIST', 'HISTORY_GET', 'HISTORY_CREATE', 'HISTORY_RENAME',
     'HISTORY_DELETE', 'HISTORY_MOVE', 'FOLDER_LIST', 'FOLDER_CREATE', 'FOLDER_UPDATE', 'FOLDER_DELETE',
-    'SETTINGS_GET', 'SETTINGS_UPDATE']) {
+    'SETTINGS_GET', 'SETTINGS_UPDATE', 'HISTORY_SET_PINNED', 'HISTORY_SEARCH', 'USAGE_GET']) {
     assert.equal(typeof handlers[INVOKE[ch]], 'function', ch);
   }
 
@@ -189,4 +189,38 @@ test('registerIpc handles chat:cancel', async () => {
   const handlers = {};
   core.registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, { sendToPanel() {} });
   assert.deepEqual(await handlers[INVOKE.CHAT_CANCEL]({}, { requestId: 'nope' }), { ok: true, cancelled: 0 });
+});
+
+test('pin and search IPC', async () => {
+  const { core } = await makeCore(() => ({ answer: 'Water is H2O', explanation: '' }));
+  const handlers = {};
+  core.registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, { sendToPanel: () => {} });
+  const s = await handlers[INVOKE.HISTORY_CREATE]({});
+  await handlers[INVOKE.CHAT_SEND]({}, { sessionId: s.id, text: 'what is water', images: [] });
+  const pinned = await handlers[INVOKE.HISTORY_SET_PINNED]({}, { id: s.id, pinned: true });
+  assert.equal(pinned.pinned, true);
+  const hits = await handlers[INVOKE.HISTORY_SEARCH]({}, { query: 'water', limit: 5 });
+  assert.equal(hits.length, 3, 'title, question and answer');
+  const f = await handlers[INVOKE.FOLDER_CREATE]({}, { name: 'Chem' });
+  assert.equal((await handlers[INVOKE.FOLDER_UPDATE]({}, { id: f.id, pinned: true })).pinned, true);
+});
+
+test('usage:get follows the provider setting and usage:changed is sent when it changes', async () => {
+  const { core } = await makeCore(() => ({ answer: 'A', explanation: '' }));
+  const handlers = {};
+  const sent = [];
+  core.registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, { sendToPanel: (ch, p) => sent.push([ch, p]) });
+  let snap = await handlers[INVOKE.USAGE_GET]({});
+  assert.equal(snap.provider, 'gemini');
+  assert.equal(snap.source, 'local-count');
+  await handlers[INVOKE.SETTINGS_UPDATE]({}, { provider: 'claude-pro' });
+  const ev = sent.filter(([ch]) => ch === EVENTS.USAGE_CHANGED);
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0][1].source, 'claude-cli');
+  assert.ok(ev[0][1].windows.every((w) => w.status === 'unknown'));
+  snap = await handlers[INVOKE.USAGE_GET]({});
+  assert.equal(snap.provider, 'claude-pro');
+  // A settings change that doesn't touch the meter sends nothing new.
+  await handlers[INVOKE.SETTINGS_UPDATE]({}, { sendMode: 'wait' });
+  assert.equal(sent.filter(([ch]) => ch === EVENTS.USAGE_CHANGED).length, 1);
 });

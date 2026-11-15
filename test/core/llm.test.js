@@ -324,3 +324,38 @@ test('the default deadline is a few minutes at most', () => {
   assert.ok(DEADLINE_MS >= 60_000 && DEADLINE_MS <= 5 * 60_000);
   assert.match(deadlineMessage(DEADLINE_MS), /within 2\.5 minutes/);
 });
+
+test('systemInstruction asks for a short answer first and the rich formats (SPEC 9.7)', () => {
+  const s = systemInstruction('both');
+  assert.match(s, /shortest complete result/);
+  assert.match(s, /\$\.\.\.\$/);
+  assert.match(s, /\$\$\.\.\.\$\$/);
+  assert.match(s, /\\ce\{/);
+  assert.match(s, /```python/);
+  assert.match(s, /Raw HTML is shown as plain text/);
+  assert.match(s, /backslash/);
+});
+
+test('parseReply keeps properly escaped LaTeX', () => {
+  const r = parseReply(JSON.stringify({ answer: '$\\ce{2H2 + O2 -> 2H2O}$', explanation: '$\\frac{1}{2}$ and \\times' }));
+  assert.equal(r.answer, '$\\ce{2H2 + O2 -> 2H2O}$');
+  assert.equal(r.explanation, '$\\frac{1}{2}$ and \\times');
+});
+
+test('parseReply repairs LaTeX the model forgot to escape', () => {
+  // Invalid JSON escapes (\c, \s) make plain JSON.parse fail.
+  let r = parseReply('{"answer": "$\\ce{H2O}$", "explanation": "$\\sqrt{2}$"}');
+  assert.equal(r.answer, '$\\ce{H2O}$');
+  assert.equal(r.explanation, '$\\sqrt{2}$');
+  // Valid but wrong escapes: \f, \b, \t, \r turn into control characters.
+  r = parseReply('{"answer": "$\\frac{a}{b}$", "explanation": "$\\beta \\times \\rho$\\nnext line"}');
+  assert.equal(r.answer, '$\\frac{a}{b}$');
+  assert.equal(r.explanation, '$\\beta \\times \\rho$\nnext line');
+});
+
+test('systemInstruction explains plot blocks', () => {
+  const s = systemInstruction('both');
+  assert.match(s, /language plot/);
+  assert.match(s, /"series"/);
+  assert.match(s, /sin cos tan asin acos atan sqrt abs ln log exp/);
+});
