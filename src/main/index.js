@@ -96,6 +96,7 @@ app.whenReady().then(async () => {
 
   shell = await createShell({
     settings: core.settings,
+    dataDir,
     preloadPath: path.join(__dirname, '..', 'preload', 'preload.js'),
     rendererHtmlPath: RENDERER_HTML,
   });

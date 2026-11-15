@@ -1,4 +1,5 @@
-// OWNER: Worker 3. Chat panel controller: wires window.proxy to the views.
+// OWNER: lead (UI phase composition root, SPEC 9.3). Chat panel controller:
+// wires window.proxy to the views and mounts each worker's module.
 
 import { canSend, createConversation } from './lib/conversation.js';
 import { dataUrlToImage, imageToDataUrl } from './lib/messages.js';
@@ -6,6 +7,9 @@ import { el } from './views/dom.js';
 import { createMessageList } from './views/chat.js';
 import { createSidebar } from './views/sidebar.js';
 import { createSettingsView } from './views/settings.js';
+import { mountKeys, registerCommand } from './keys/index.js';
+import { mountTheme, mountLookSettings } from './theme/index.js';
+import { mountUsageMeter, mountUsageSettings } from './usage/index.js';
 
 const proxy = window.proxy;
 const { EVENTS, SEND_MODES, DEFAULT_SETTINGS } = proxy.constants;
@@ -285,7 +289,76 @@ proxy.on(EVENTS.SETTINGS_CHANGED, (next) => {
   if (!next) return;
   settings = next;
   settingsView.externalUpdate(next);
+  for (const cb of [...settingsListeners]) {
+    try {
+      cb(next);
+    } catch (err) {
+      console.warn('[app] settings listener failed:', err);
+    }
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Worker modules (UI phase, SPEC 9.5.6)
+// ---------------------------------------------------------------------------
+
+/** @type {Set<(s: object) => void>} */
+const settingsListeners = new Set();
+
+/** Subscribe to settings changes. Returns an unsubscribe function. */
+function onSettings(cb) {
+  settingsListeners.add(cb);
+  return () => settingsListeners.delete(cb);
+}
+
+/** The text of the newest answer in the open chat, or ''. */
+function latestAnswer() {
+  const messages = conversation.visibleMessages();
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m.role === 'assistant' && (m.answer || m.explanation)) return m.answer || m.explanation;
+  }
+  return '';
+}
+
+/** Chat and window commands for the command bar (SPEC 9.6). chat.next/prev/switch come from W2's sidebar. */
+function registerAppCommands() {
+  const add = (id, title, group, run) => registerCommand({ id, title, group, run });
+  add('chat.new', 'New chat', 'Chat', newChat);
+  add('chat.copyAnswer', 'Copy the latest answer', 'Chat', async () => {
+    const text = latestAnswer();
+    if (text) await attempt('Copy', () => proxy.clipboard.writeText(text));
+  });
+  add('chat.focusInput', 'Focus the message box', 'Chat', () => { showView('chat'); ui.input.focus(); });
+  add('app.settings', 'Open settings', 'App', () => showView('settings'));
+  add('app.toggleSidebar', 'Show or hide the chat list', 'App', () => setSidebar(!ui.app.classList.contains('sidebar-open')));
+  add('capture.region', 'Snip a region', 'Capture', () => attempt('Snip', () => proxy.capture.region()));
+  add('capture.fullscreen', 'Capture the whole screen', 'Capture', () => attempt('Full screenshot', () => proxy.capture.fullscreen()));
+  add('window.toggleFullscreen', 'Toggle full screen', 'Window', async () => {
+    applyWindowState(await attempt('Full screen', () => proxy.window.toggleFullscreen()));
+  });
+  add('window.hide', 'Hide the panel', 'Window', () => attempt('Hide', () => proxy.window.hide()));
+}
+
+/** Mount each worker's module. A failing module must not break the chat. */
+function mountModules() {
+  const ctx = { proxy, settings, onSettings };
+  const save = (patch) => proxy.settings.update(patch);
+  const mounts = [
+    ['theme', () => mountTheme(ctx)],
+    ['keys', () => mountKeys({ ...ctx, root: $('cmdbar-root') })],
+    ['usage meter', () => mountUsageMeter($('usage-slot'), ctx)],
+    ['look settings', () => mountLookSettings($('settings-look'), { ...ctx, save })],
+    ['usage settings', () => mountUsageSettings($('settings-usage'), { ...ctx, save })],
+  ];
+  for (const [name, mount] of mounts) {
+    try {
+      mount();
+    } catch (err) {
+      console.warn(`[app] mounting ${name} failed:`, err);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Start
@@ -297,6 +370,8 @@ async function init() {
   renderAttachments();
   const loaded = await attempt('Loading settings', () => proxy.settings.get());
   if (loaded) settings = loaded;
+  registerAppCommands();
+  mountModules();
   applyWindowState(await attempt('Reading window state', () => proxy.window.getState()));
   await refreshSessions();
   ui.input.focus();

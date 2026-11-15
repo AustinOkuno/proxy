@@ -4,18 +4,22 @@ Read `SPEC.md` first. It has the features, the folder ownership table, and the i
 
 ## Who owns what
 
+We are in the **UI phase** (SPEC.md section 9). This table is the current ownership; SPEC.md 9.3 has the details.
+
 | You are | You may edit | Tests go in |
 |---|---|---|
-| **Worker 1** (capture, hotkeys, windows) | `src/main/shell/**` | `test/shell/**` |
-| **Worker 2** (Gemini, settings, history) | `src/main/core/**` | `test/core/**` |
-| **Worker 3** (chat panel UI) | `src/renderer/**` | `test/renderer/**` |
-| **Lead** | `src/shared/**`, `src/preload/**`, `src/main/index.js`, `package.json`, `package-lock.json`, `SPEC.md`, `CLAUDE.md`, `README.md`, `.gitignore`, `.env.example`, `test/shared/**` | `test/shared/**` |
+| **Worker 1** (keys and panel: frameless panel, docking, hotkeys, command bar, keymap, Settings frame, asset files) | `src/main/shell/**`, `src/renderer/keys/**`, `src/renderer/views/settings.js`, `src/renderer/lib/settings-form.js`, `src/renderer/lib/accelerator.js` | `test/shell/**`, `test/renderer/keys/**`, `test/renderer/settings-form.test.js`, `test/renderer/accelerator.test.js` |
+| **Worker 2** (replies and storage: settings validation, history, pins, search, usage, prompt, rich replies, chat list, usage meter) | `src/main/core/**`, `src/renderer/render/**`, `src/renderer/usage/**`, `src/renderer/vendor/**`, `src/renderer/views/chat.js`, `src/renderer/views/sidebar.js`, `src/renderer/views/dom.js`, `src/renderer/lib/messages.js`, `src/renderer/lib/conversation.js`, `src/renderer/lib/folders.js` | `test/core/**`, `test/renderer/render/**`, `test/renderer/usage/**`, `test/renderer/messages.test.js`, `test/renderer/conversation.test.js`, `test/renderer/folders.test.js` |
+| **Worker 3** (look: theme engine, built-in and user themes, fonts, backgrounds, effects, all visual styling) | `src/renderer/theme/**`, `src/renderer/styles/**`, `src/renderer/assets/**` | `test/renderer/theme/**` |
+| **Lead** | `src/shared/**`, `src/preload/**`, `src/main/index.js`, `src/renderer/index.html`, `src/renderer/app.js`, `package.json`, `package-lock.json`, `SPEC.md`, `CLAUDE.md`, `README.md`, `.gitignore`, `.env.example`, `test/shared/**` | `test/shared/**` |
 
 1. **Stay in your folder.** Do not edit, move, rename or reformat files outside the paths above, even to "fix" something small. If you need something outside your folder, request it (see below).
 2. **Don't touch other workers' folders.** If you find a bug in someone else's area, describe it in your PR description or an issue; don't patch it.
 3. **Keep the exported shape** of your folder's `index.js` exactly as SPEC.md section 4 describes. Internals are yours to change.
 4. **Import shared things only from `src/shared/contracts.js`.** Never hard-code an IPC channel string; use `INVOKE.*` / `EVENTS.*`. (The renderer uses `window.proxy` and `window.proxy.constants`.)
 5. Worker 1's overlay IPC is private to Worker 1 and uses the `overlay:` prefix.
+6. **Styling belongs to Worker 3.** Workers 1 and 2 may add structural CSS in their own folder (`keys/keys.css`, `render/render.css`, `usage/usage.css`), but every color, font, shadow and radius must be a `var(--...)` token from SPEC.md 9.5.1, and they use the class names in SPEC.md 9.5.6.
+7. **Renderer modules talk through the exports in SPEC.md 9.5.6** (`registerCommand`, `mountTheme`, `renderRich`, `mountUsageMeter`, ...). `app.js` mounts them; ask the lead for changes to `app.js` or `index.html`.
 
 ## Branches and PRs
 
@@ -50,7 +54,8 @@ New dependencies follow the same process (the lead edits `package.json`). Prefer
 - Keep Electron-free logic in separate small modules so it can be unit-tested with `node --test` without launching Electron.
 - Never log or send the Gemini API key anywhere. It stays in Worker 2's code in the main process.
 - Renderer security stays as is: `contextIsolation: true`, `nodeIntegration: false`, no remote content, CSP unchanged unless the lead approves.
-- UI styling: colors, fonts, spacing only via CSS variables in `src/renderer/styles/theme.css`.
+- UI styling: colors, fonts, spacing only via the CSS variables (tokens) in SPEC.md 9.5.1. The theme engine (Worker 3) sets them; `src/renderer/styles/theme.css` holds the fallback values.
+- Vendored browser libraries go in `src/renderer/vendor/` with a line in `VENDOR.md`; only the ones SPEC.md 9.3 approves, others need an interface change request.
 
 ## Commands
 
