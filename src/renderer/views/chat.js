@@ -6,6 +6,21 @@ import { bubbleKind, imageToDataUrl, replySections, explanationCollapsed } from 
 import { renderRich } from '../render/index.js';
 import { registerCommand } from '../keys/index.js';
 
+/** A message to scroll to once it is on screen (set by search), and the list that shows it. */
+let pendingFocus = null;
+let activeList = null;
+const FOCUS_FLASH_MS = 2000;
+
+/**
+ * Scroll to a message and flash it, now if it is shown, otherwise as soon as
+ * its chat renders (search opens the chat first, then asks for the message).
+ * @param {string} messageId
+ */
+export function focusMessage(messageId) {
+  pendingFocus = messageId || null;
+  if (activeList) activeList.applyFocus();
+}
+
 /**
  * @param {HTMLElement} container
  * @param {{ copy: (text: string) => Promise<unknown>, retry?: () => unknown }} deps
@@ -183,17 +198,32 @@ export function createMessageList(container, { copy, retry }) {
       }
       messages.forEach((m, i) => {
         const last = i === messages.length - 1;
-        container.append(el('div', { className: `row ${m.role === 'user' ? 'from-user' : 'from-assistant'}` }, [
+        container.append(el('div', {
+          className: `row ${m.role === 'user' ? 'from-user' : 'from-assistant'}`,
+          dataset: m.id ? { messageId: m.id } : undefined,
+        }, [
           bubble(m, { canRetry: canRetry && last }),
         ]));
       });
       if (nearBottom || messages[messages.length - 1].pending) {
         container.scrollTop = container.scrollHeight;
       }
+      api.applyFocus();
+    },
+    /** Scroll to the message search asked for, if it is in this list. */
+    applyFocus() {
+      if (!pendingFocus) return;
+      const row = [...container.children].find((r) => r.dataset && r.dataset.messageId === pendingFocus);
+      if (!row) return;
+      pendingFocus = null;
+      row.scrollIntoView({ block: 'center' });
+      row.classList.add('search-target');
+      setTimeout(() => row.classList.remove('search-target'), FOCUS_FLASH_MS);
     },
     scrollToBottom() {
       container.scrollTop = container.scrollHeight;
     },
   };
+  activeList = api;
   return api;
 }

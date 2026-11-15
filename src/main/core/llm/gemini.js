@@ -7,6 +7,8 @@
 
 const { systemInstruction, buildContents, parseReply, applyStyle } = require('./prompt');
 const { createImageShrinker, electronNativeImage } = require('./images');
+const { geminiRetryDelayMs } = require('../usage');
+const { PROVIDERS } = require('../../../shared/contracts');
 
 // Google limits the 2.5 models to keys that already used them, so new free keys
 // get "model not found" for gemini-2.5-flash. Default to a current Flash model and,
@@ -131,7 +133,12 @@ function createGeminiProvider({
   now = Date.now,
   logger = console,
   deadlineMs = DEADLINE_MS,
+  usage = null,
 } = {}) {
+  const meter = (fn) => {
+    if (!usage) return;
+    try { fn(usage); } catch (err) { logger.warn(`[core] usage update failed: ${err.message}`); }
+  };
   const apiKey = String(env.GEMINI_API_KEY || '').trim();
   const configured = String(env.GEMINI_MODEL || '').trim() || DEFAULT_MODEL;
   const candidates = [configured, DEFAULT_MODEL, ...FALLBACK_MODELS].filter((m, i, a) => a.indexOf(m) === i);
@@ -145,9 +152,17 @@ function createGeminiProvider({
     for (let attempt = 0; ; attempt++) {
       if (signal.aborted) throw stoppedError();
       try {
-        return await client.models.generateContent({ ...params, model: m, config: { ...params.config, abortSignal: signal } });
+        const response = await client.models.generateContent({ ...params, model: m, config: { ...params.config, abortSignal: signal } });
+        const um = (response && response.usageMetadata) || {};
+        meter((u) => u.recordRequest(PROVIDERS.GEMINI, { inputTokens: um.promptTokenCount, outputTokens: um.candidatesTokenCount }));
+        return response;
       } catch (err) {
         if (signal.aborted) throw err;
+        // Every request counts against the quota, even a failed one. A 429 also
+        // marks the meter limited until the retry delay Gemini gave (a zero
+        // limit means no access to this model at all, not a rate limit).
+        meter((u) => u.recordRequest(PROVIDERS.GEMINI));
+        if (errStatus(err) === 429 && !isNoFreeQuota(err)) meter((u) => u.markLimited(PROVIDERS.GEMINI, now() + geminiRetryDelayMs(err)));
         const delay = RETRY_DELAYS_MS[attempt];
         if (!isTransient(err) || delay === undefined || now() - start + delay > RETRY_BUDGET_MS) throw err;
         logger.warn(`[core] Gemini ${m} failed (${errStatus(err) || err.message}); retrying in ${delay} ms.`);

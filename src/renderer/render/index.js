@@ -1,6 +1,9 @@
 // OWNER: Worker 2 (UI phase). Rich reply rendering: Markdown, math, code, plots (SPEC 9.7).
 
 import { buildRich } from './markdown.js';
+import { renderPlotBlock } from './plot.js';
+
+const FENCES = { plot: renderPlotBlock };
 
 /**
  * Render a reply section. Never throws: if anything goes wrong the text is
@@ -14,7 +17,7 @@ export function renderRich(markdown, opts = {}) {
   const kind = opts.kind === 'answer' ? 'answer' : 'explanation';
   let root;
   try {
-    root = buildRich(markdown, { doc });
+    root = buildRich(markdown, { doc, fences: FENCES });
   } catch (err) {
     console.warn('[render] falling back to plain text:', err);
     root = doc.createElement('div');

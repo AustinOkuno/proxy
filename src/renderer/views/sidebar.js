@@ -1,11 +1,16 @@
-// OWNER: Worker 3. Session list with folders.
-// - Chats: click to open; rename with double-click, F2 or the pencil; delete (click twice to confirm).
-// - Folders: click to collapse/expand; rename the same way; delete (click twice; chats move out).
+// OWNER: Worker 2 (UI phase). Session list with folders, pins and search (SPEC 9.2 #9).
+// - Chats: click to open; rename with double-click, F2 or the pencil; pin; delete (click twice to confirm).
+// - Folders: click to collapse/expand; rename the same way; pin; delete (click twice; chats move out).
 // - Drag a chat onto a folder to file it, or onto empty list space to take it out of its folder.
+// - Pinned folders sit at the top, then other folders, pinned chats and the rest.
+// - Ctrl+F searches every chat; Ctrl+P lists chats by name; Ctrl+Tab / Ctrl+Shift+Tab step
+//   through chats; Ctrl+Shift+P pins the open chat (commands registered below, keys from W1's keymap).
 
 import { el } from './dom.js';
 import { formatSessionTime } from '../lib/messages.js';
-import { groupSessions, isUsefulMove } from '../lib/folders.js';
+import { groupSessions, isUsefulMove, sidebarOrder, stepChat, splitSnippet } from '../lib/folders.js';
+import { registerCommand } from '../keys/index.js';
+import { focusMessage } from './chat.js';
 
 const CONFIRM_MS = 3000;
 
@@ -24,6 +29,7 @@ const CONFIRM_MS = 3000;
  */
 export function createSidebar(list, emptyNote, handlers) {
   const { onOpen, onRename, onDelete, onMove, onCreateFolder, onUpdateFolder, onDeleteFolder } = handlers;
+  const proxy = typeof window !== 'undefined' ? window.proxy : null;
   let sessions = [];
   let folders = [];
   let currentId = null;
@@ -100,6 +106,41 @@ export function createSidebar(list, emptyNote, handlers) {
       await run();
     });
     return b;
+  }
+
+  function pinButton(pinned, label, run) {
+    const b = el('button', {
+      type: 'button',
+      className: `btn icon small pin${pinned ? ' is-pinned' : ''}`,
+      title: pinned ? `Unpin ${label}` : `Pin ${label} to the top`,
+      'aria-label': pinned ? `Unpin ${label}` : `Pin ${label}`,
+      'aria-pressed': String(!!pinned),
+      text: pinned ? '★' : '☆',
+    });
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      run(!pinned);
+    });
+    return b;
+  }
+
+  async function pinSession(id, pinned) {
+    if (!proxy) return;
+    // Show it right away; history:changed brings the saved order.
+    sessions = sessions.map((s) => (s.id === id ? { ...s, pinned, pinnedAt: pinned ? Date.now() : null } : s));
+    render();
+    try {
+      await proxy.history.setPinned(id, pinned);
+    } catch (err) {
+      console.warn('[sidebar] pin failed:', err);
+    }
+  }
+
+  function pinFolder(folder, pinned) {
+    folder.pinned = pinned;
+    folder.pinnedAt = pinned ? Date.now() : null;
+    render();
+    onUpdateFolder(folder.id, { pinned });
   }
 
   // ---- drag and drop -----------------------------------------------------
@@ -190,11 +231,12 @@ export function createSidebar(list, emptyNote, handlers) {
       confirmTitle: 'Click again to delete',
       run: () => onDelete(s.id),
     });
+    const pin = pinButton(!!s.pinned, 'chat', (next) => pinSession(s.id, next));
     const li = el('li', {
-      className: `session${s.id === currentId ? ' current' : ''}`,
+      className: `session${s.id === currentId ? ' current' : ''}${s.pinned ? ' is-pinned' : ''}`,
       draggable: 'true',
       dataset: { id: s.id },
-    }, [open, renameButton('session', s.id, 'Rename chat'), del]);
+    }, [open, pin, renameButton('session', s.id, 'Rename chat'), del]);
     li.addEventListener('dragstart', (e) => {
       dragId = s.id;
       e.dataTransfer.effectAllowed = 'move';
@@ -253,7 +295,8 @@ export function createSidebar(list, emptyNote, handlers) {
         confirmTitle: 'Click again to delete the folder. Its chats are kept and move out of it.',
         run: () => onDeleteFolder(folder.id),
       });
-      head = el('div', { className: 'folder-head' }, [toggle, renameButton('folder', folder.id, 'Rename folder'), del]);
+      const pin = pinButton(!!folder.pinned, 'folder', (next) => pinFolder(folder, next));
+      head = el('div', { className: 'folder-head' }, [toggle, pin, renameButton('folder', folder.id, 'Rename folder'), del]);
     }
 
     const children = [head];
@@ -263,7 +306,7 @@ export function createSidebar(list, emptyNote, handlers) {
           ? inside.map(sessionRow)
           : [el('li', { className: 'folder-empty muted', text: 'Drag chats here' })]));
     }
-    const li = el('li', { className: `folder${collapsed ? ' collapsed' : ''}`, dataset: { folderId: folder.id } }, children);
+    const li = el('li', { className: `folder${collapsed ? ' collapsed' : ''}${folder.pinned ? ' is-pinned' : ''}`, dataset: { folderId: folder.id } }, children);
     makeFolderDropZone(li, folder.id);
     return li;
   }
@@ -271,11 +314,54 @@ export function createSidebar(list, emptyNote, handlers) {
   function render() {
     const { groups, loose } = groupSessions(sessions, folders);
     const rows = groups.map(folderRow);
-    if (groups.length && loose.length) rows.push(el('li', { className: 'list-label muted', text: 'Chats' }));
-    rows.push(...loose.map(sessionRow));
+    const pinned = loose.filter((s) => s.pinned);
+    const rest = loose.filter((s) => !s.pinned);
+    if (pinned.length) {
+      rows.push(el('li', { className: 'list-label muted', text: 'Pinned' }));
+      rows.push(...pinned.map(sessionRow));
+    }
+    if ((groups.length || pinned.length) && rest.length) rows.push(el('li', { className: 'list-label muted', text: 'Chats' }));
+    rows.push(...rest.map(sessionRow));
     list.replaceChildren(...rows);
     emptyNote.hidden = sessions.length > 0 || folders.length > 0;
   }
+
+  // ---- search (Ctrl+F) and switching chats (Ctrl+P) ----------------------
+
+  const search = createSearchBox({
+    host: (list.closest && list.closest('#app')) || document.body,
+    proxy,
+    chats: () => {
+      const order = sidebarOrder(sessions, folders);
+      const byId = new Map(sessions.map((x) => [x.id, x]));
+      return order.map((id) => byId.get(id)).filter(Boolean);
+    },
+    open: (hit) => {
+      onOpen(hit.sessionId);
+      if (hit.messageId) focusMessage(hit.messageId);
+    },
+  });
+
+  function openRelative(step) {
+    const next = stepChat(sidebarOrder(sessions, folders), currentId, step);
+    if (next && next !== currentId) onOpen(next);
+  }
+
+  registerCommand({ id: 'history.search', title: 'Search all chats', group: 'Chats', run: () => search.show('search') });
+  registerCommand({ id: 'chat.switch', title: 'Switch to a chat by name', group: 'Chats', run: () => search.show('switch') });
+  registerCommand({ id: 'chat.next', title: 'Next chat', group: 'Chats', run: () => openRelative(1) });
+  registerCommand({ id: 'chat.prev', title: 'Previous chat', group: 'Chats', run: () => openRelative(-1) });
+  registerCommand({
+    id: 'history.pinCurrent',
+    title: 'Pin or unpin the open chat',
+    group: 'Chats',
+    when: () => !!currentId,
+    run: () => {
+      const s = sessions.find((x) => x.id === currentId);
+      if (s) return pinSession(s.id, !s.pinned);
+      return undefined;
+    },
+  });
 
   function stillExists(ref) {
     if (!ref) return false;
@@ -306,5 +392,140 @@ export function createSidebar(list, emptyNote, handlers) {
       if (!folders.some((x) => x.id === f.id)) folders = [...folders, { ...f }];
       startEdit('folder', f.id);
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Search box: one overlay for full-text search (Ctrl+F) and switching chats
+// by name (Ctrl+P). Empty query lists chats in sidebar order; typing searches
+// titles, questions, answers and explanations in the main process.
+// ---------------------------------------------------------------------------
+
+const SEARCH_DEBOUNCE_MS = 120;
+
+function createSearchBox({ host, proxy, chats, open }) {
+  const input = el('input', {
+    type: 'search',
+    className: 'search-input',
+    placeholder: 'Search all chats',
+    'aria-label': 'Search all chats',
+    autocomplete: 'off',
+    spellcheck: 'false',
+  });
+  const results = el('ul', { className: 'search-results', role: 'listbox' });
+  const status = el('div', { className: 'search-status muted', 'aria-live': 'polite' });
+  const box = el('div', { className: 'search-box', role: 'dialog', 'aria-label': 'Search', hidden: true }, [input, status, results]);
+  host.append(box);
+
+  /** @type {{ sessionId: string, messageId: string|null, title: string, snippet?: string, matchStart?: number, matchLength?: number }[]} */
+  let items = [];
+  let active = 0;
+  let timer = null;
+  let seq = 0;
+
+  function draw() {
+    results.replaceChildren(...items.map((hit, i) => {
+      const parts = hit.snippet != null ? splitSnippet(hit) : null;
+      const li = el('li', {
+        className: `search-hit${i === active ? ' active' : ''}`,
+        role: 'option',
+        'aria-selected': String(i === active),
+      }, [
+        el('div', { className: 'search-hit-title', text: hit.title || 'Untitled' }),
+        parts && hit.messageId
+          ? el('div', { className: 'search-hit-snippet muted' }, [
+            parts.before, el('mark', { className: 'search-mark', text: parts.match }), parts.after,
+          ])
+          : null,
+      ]);
+      li.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the input
+      li.addEventListener('click', () => choose(i));
+      return li;
+    }));
+    const cur = results.children[active];
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
+  }
+
+  function listChats(filter = '') {
+    const f = filter.toLowerCase();
+    items = chats()
+      .filter((s) => !f || String(s.title || '').toLowerCase().includes(f))
+      .map((s) => ({ sessionId: s.id, messageId: null, title: s.title }));
+    active = 0;
+    status.textContent = items.length ? '' : 'No chats yet';
+    draw();
+  }
+
+  async function runSearch(query) {
+    const mine = ++seq;
+    if (!query.trim()) { listChats(); return; }
+    if (!proxy) return;
+    try {
+      const hits = await proxy.history.search(query, { limit: 50 });
+      if (mine !== seq) return;
+      items = Array.isArray(hits) ? hits : [];
+      active = 0;
+      status.textContent = items.length ? '' : 'Nothing found';
+      draw();
+    } catch (err) {
+      if (mine !== seq) return;
+      items = [];
+      status.textContent = `Search failed: ${(err && err.message) || err}`;
+      draw();
+    }
+  }
+
+  function choose(i) {
+    const hit = items[i];
+    if (!hit) return;
+    hide();
+    open(hit);
+  }
+
+  function hide() {
+    box.hidden = true;
+    clearTimeout(timer);
+    seq += 1;
+  }
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value;
+    if (box.dataset.mode === 'switch') { listChats(q); return; }
+    timer = setTimeout(() => runSearch(q), SEARCH_DEBOUNCE_MS);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (items.length) active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      draw();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      choose(active);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      hide();
+    }
+  });
+  input.addEventListener('blur', () => {
+    // Clicking elsewhere closes it (result clicks keep focus via mousedown).
+    setTimeout(() => { if (typeof document !== 'undefined' && document.activeElement !== input) hide(); }, 0);
+  });
+
+  return {
+    /** @param {'search'|'switch'} mode */
+    show(mode = 'search') {
+      box.dataset.mode = mode;
+      const label = mode === 'switch' ? 'Switch to a chat' : 'Search all chats';
+      input.placeholder = label;
+      input.setAttribute('aria-label', label);
+      box.hidden = false;
+      input.value = '';
+      listChats();
+      input.focus();
+    },
+    hide,
   };
 }
