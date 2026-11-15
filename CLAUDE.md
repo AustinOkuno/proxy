@@ -4,14 +4,14 @@ Read `SPEC.md` first. It has the features, the folder ownership table, and the i
 
 ## Who owns what
 
-We are in the **UI phase** (SPEC.md section 9). This table is the current ownership; SPEC.md 9.3 has the details.
+We are in the **UI phase** (SPEC.md section 9). This table is the current ownership; SPEC.md section 3 is the full list of paths and 9.3 has the details.
 
 | You are | You may edit | Tests go in |
 |---|---|---|
 | **Worker 1** (keys and panel: frameless panel, docking, hotkeys, command bar, keymap, Settings frame, asset files) | `src/main/shell/**`, `src/renderer/keys/**`, `src/renderer/views/settings.js`, `src/renderer/lib/settings-form.js`, `src/renderer/lib/accelerator.js` | `test/shell/**`, `test/renderer/keys/**`, `test/renderer/settings-form.test.js`, `test/renderer/accelerator.test.js` |
 | **Worker 2** (replies and storage: settings validation, history, pins, search, usage, prompt, rich replies, chat list, usage meter) | `src/main/core/**`, `src/renderer/render/**`, `src/renderer/usage/**`, `src/renderer/vendor/**`, `src/renderer/views/chat.js`, `src/renderer/views/sidebar.js`, `src/renderer/views/dom.js`, `src/renderer/lib/messages.js`, `src/renderer/lib/conversation.js`, `src/renderer/lib/folders.js` | `test/core/**`, `test/renderer/render/**`, `test/renderer/usage/**`, `test/renderer/messages.test.js`, `test/renderer/conversation.test.js`, `test/renderer/folders.test.js` |
 | **Worker 3** (look: theme engine, built-in and user themes, fonts, backgrounds, effects, all visual styling) | `src/renderer/theme/**`, `src/renderer/styles/**`, `src/renderer/assets/**` | `test/renderer/theme/**` |
-| **Lead** | `src/shared/**`, `src/preload/**`, `src/main/index.js`, `src/renderer/index.html`, `src/renderer/app.js`, `package.json`, `package-lock.json`, `SPEC.md`, `CLAUDE.md`, `README.md`, `.gitignore`, `.env.example`, `test/shared/**` | `test/shared/**` |
+| **Lead** | `src/shared/**`, `src/preload/**`, `src/main/index.js`, `src/renderer/index.html`, `src/renderer/app.js`, `package.json`, `package-lock.json`, `src/renderer/package.json`, `test/renderer/package.json`, `SPEC.md`, `CLAUDE.md`, `README.md`, `.gitignore`, `.env.example`, `test/shared/**` | `test/shared/**` |
 
 1. **Stay in your folder.** Do not edit, move, rename or reformat files outside the paths above, even to "fix" something small. If you need something outside your folder, request it (see below).
 2. **Don't touch other workers' folders.** If you find a bug in someone else's area, describe it in your PR description or an issue; don't patch it.
