@@ -79,3 +79,41 @@ export function buildSettingsPatch(values, enums) {
   const ok = Object.keys(errors).length === 0;
   return { ok, patch: ok ? patch : {}, errors };
 }
+
+/** Labels for the dock choices on the General tab, in screen order. */
+export const DOCK_LABELS = {
+  'top-left': 'Top left',
+  'top-right': 'Top right',
+  'bottom-left': 'Bottom left',
+  'bottom-right': 'Bottom right',
+  free: 'Free (stays where I drop it)',
+};
+
+/**
+ * Turn the Panel section's values into a `panel` settings patch. Only the
+ * fields given are included; the margin is rounded and kept in range.
+ * @param {{ dock?: string, snap?: boolean, margin?: number|string }} values
+ * @param {{ PANEL_DOCKS?: object, SETTINGS_LIMITS?: { panelMargin?: { min: number, max: number } } }} enums
+ * @returns {{ ok: boolean, patch: object, errors: Record<string,string> }}
+ */
+export function buildPanelPatch(values, enums = {}) {
+  const errors = {};
+  const panel = {};
+  const v = values || {};
+  if (v.dock !== undefined) {
+    const docks = Object.values(enums.PANEL_DOCKS || DOCK_LABELS_KEYS);
+    if (docks.includes(v.dock)) panel.dock = v.dock;
+    else errors['panel.dock'] = 'Pick one of the corners.';
+  }
+  if (v.snap !== undefined) panel.snap = !!v.snap;
+  if (v.margin !== undefined) {
+    const L = (enums.SETTINGS_LIMITS && enums.SETTINGS_LIMITS.panelMargin) || { min: 0, max: 64 };
+    const n = typeof v.margin === 'string' && v.margin.trim() === '' ? NaN : Number(v.margin);
+    if (Number.isFinite(n)) panel.margin = Math.min(L.max, Math.max(L.min, Math.round(n)));
+    else errors['panel.margin'] = `Type a number from ${L.min} to ${L.max}.`;
+  }
+  const ok = Object.keys(errors).length === 0;
+  return { ok, patch: ok && Object.keys(panel).length ? { panel } : {}, errors };
+}
+
+const DOCK_LABELS_KEYS = Object.keys(DOCK_LABELS);

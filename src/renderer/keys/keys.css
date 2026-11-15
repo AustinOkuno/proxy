@@ -102,3 +102,71 @@
   font-family: var(--font-code, var(--font-mono));
   font-size: inherit;
 }
+
+/* ---- Settings frame (views/settings.js) and the Keys tab (keys/keys-tab.js) ---- */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap, 8px) / 2);
+  margin: 0 0 var(--gap, 8px);
+  border-bottom: 1px solid var(--border);
+}
+.settings-tab-btn {
+  padding: calc(var(--gap, 8px) / 2) var(--gap, 8px);
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-small) var(--radius-small) 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui, var(--font));
+  font-size: var(--size-ui, 12px);
+  cursor: pointer;
+}
+.settings-tab-btn:hover { color: var(--text); background: var(--surface-hover); }
+.settings-tab-btn.active,
+.settings-tab-btn[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--surface);
+  border-color: var(--border);
+  border-bottom-color: var(--surface);
+}
+.settings-tab-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.settings-tab[hidden] { display: none; }
+
+.panel-margin { width: 72px; flex: none !important; }
+.panel-status { align-self: center; }
+.panel-snap { margin-top: calc(var(--gap, 8px) / 2); }
+
+.keys-toolbar { align-items: center; margin-bottom: var(--gap, 8px); }
+.keys-filter { flex: 1; min-width: 0; }
+.keys-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.keys-group {
+  margin-top: var(--gap, 8px);
+  padding: calc(var(--gap, 8px) / 4) 0;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.keys-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--gap, 8px) / 2);
+  padding: calc(var(--gap, 8px) / 4) 0;
+}
+.keys-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.keys-actions { flex: none; display: flex; align-items: center; gap: calc(var(--gap, 8px) / 2); }
+.keys-record { min-width: 96px; text-align: center; }
+.keys-record.unset .kbd { color: var(--text-muted); border-style: dashed; }
+.keys-record.recording { border-color: var(--accent); color: var(--accent); }
+.keys-record:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.keys-row.is-changed .keys-record .kbd { color: var(--accent); border-color: var(--accent); }
+.keys-row.has-clash .keys-record .kbd { border-color: var(--warning); }
+.keys-notes { flex-basis: 100%; }
+.keys-footer { margin-top: var(--gap, 8px); }
+.keys-empty { padding: var(--gap, 8px) 0; }
