@@ -7,13 +7,15 @@
  * Exported shape matches SPEC.md section 4.3.
  */
 
-const { globalShortcut, clipboard } = require('electron');
+const path = require('node:path');
+const { globalShortcut, clipboard, dialog, nativeImage } = require('electron');
 const { INVOKE, EVENTS } = require('../../shared/contracts');
 const { createPanel } = require('./panel');
 const { createHotkeyManager, withFallbacks } = require('./hotkeys');
 const { displayUnderCursor, grabDisplay, cropToSelection, toImageData } = require('./capture');
 const { openOverlay } = require('./overlay/overlay');
 const visibility = require('./visibility');
+const { createAssetStore, dialogFilters, fitWithin } = require('./assets');
 
 // Time for the compositor to actually remove the hidden panel from the screen
 // before we grab it.
@@ -22,13 +24,33 @@ const HIDE_SETTLE_MS = 250;
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Scale an image down with Electron's decoder so neither side is over maxSide.
+ * Returns null (keep the original) when it already fits or can't be decoded.
+ */
+function scaleImage(buf, mimeType, maxSide) {
+  if (mimeType !== 'image/png' && mimeType !== 'image/jpeg') return null;
+  const img = nativeImage.createFromBuffer(buf);
+  if (img.isEmpty()) throw new Error("That image couldn't be opened. Is the file damaged?");
+  const { width, height } = img.getSize();
+  const size = fitWithin(width, height, maxSide);
+  if (!size) return null;
+  const small = img.resize({ ...size, quality: 'best' });
+  return mimeType === 'image/jpeg'
+    ? { data: small.toJPEG(90), mimeType }
+    : { data: small.toPNG(), mimeType };
+}
+
+/**
  * @param {{
  *   settings: { get(): object, update(patch: object): object, onChange(cb: Function): Function },
+ *   dataDir: string,
  *   preloadPath: string,
  *   rendererHtmlPath: string,
  * }} opts
  */
-async function createShell({ settings, preloadPath, rendererHtmlPath }) {
+async function createShell({ settings, dataDir, preloadPath, rendererHtmlPath }) {
+  const assets = createAssetStore({ dir: path.join(dataDir, 'assets'), scaleImage });
+
   const panel = createPanel({
     settings,
     preloadPath,
@@ -163,6 +185,36 @@ async function createShell({ settings, preloadPath, rendererHtmlPath }) {
       clipboard.writeText(String((arg && arg.text) ?? ''));
       return { ok: true };
     });
+
+    // Assets (SPEC 9.5.5). Errors thrown here reach the renderer as readable messages.
+    ipcMain.handle(INVOKE.ASSETS_IMPORT, (_e, arg) => importAsset(arg && arg.kind));
+    ipcMain.handle(INVOKE.ASSETS_GET, (_e, arg) => assets.get(arg && arg.id));
+    ipcMain.handle(INVOKE.ASSETS_LIST, (_e, arg) => assets.list(arg && arg.kind));
+    ipcMain.handle(INVOKE.ASSETS_DELETE, (_e, arg) => assets.delete(arg && arg.id));
+  }
+
+  let importing = false;
+
+  /** Open a file dialog over the panel and copy the chosen file in. null = cancelled. */
+  async function importAsset(kind) {
+    if (kind !== 'image' && kind !== 'font') throw new Error(`Unknown asset kind "${kind}".`);
+    if (importing) return null;
+    importing = true;
+    try {
+      const options = {
+        title: kind === 'image' ? 'Choose a background image' : 'Choose a font file',
+        properties: ['openFile'],
+        filters: dialogFilters(kind),
+      };
+      const parent = panel.window;
+      const res = parent && !parent.isDestroyed()
+        ? await dialog.showOpenDialog(parent, options)
+        : await dialog.showOpenDialog(options);
+      if (res.canceled || !res.filePaths || !res.filePaths.length) return null;
+      return assets.importFile(kind, res.filePaths[0]);
+    } finally {
+      importing = false;
+    }
   }
 
   function dispose() {

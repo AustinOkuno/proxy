@@ -31,6 +31,12 @@ function h(tag, attrs = {}, ...children) {
 
 const pct = (n) => `${Math.round(n * 100)}%`;
 
+/** The readable part of an IPC error ("Error invoking remote method 'x': Error: msg" -> "msg"). */
+export function errorText(err) {
+  const msg = err && err.message ? err.message : String(err);
+  return msg.replace(/^Error invoking remote method '[^']*':\s*/, '').replace(/^Error:\s*/, '');
+}
+
 /** A labelled range input. `onInput` gets the number. */
 function slider({ key, label, value, min = 0, max = 1, step = 0.05, format = pct, onInput }) {
   const out = h('output', { class: 'look-slider-value' }, format(value));
@@ -80,9 +86,10 @@ export function mountLook(container, { proxy, store, loadFont }) {
       fontsSection(a),
       backgroundSection(a),
       h('p', { class: `look-note ${ui.noteKind}`, role: 'status' }, ui.note),
-      store.state.unsaved
-        ? h('p', { class: 'look-note warning' }, 'These look changes show now but are not being saved yet; they reset when Proxy restarts.')
-        : null,
+      // replaceChildren() would print a bare null as the text "null", so leave it out.
+      ...(store.state.unsaved
+        ? [h('p', { class: 'look-note warning' }, 'These look changes show now but are not being saved yet; they reset when Proxy restarts.')]
+        : []),
     );
     if (focusedKey) {
       const el = container.querySelector(`[data-key="${CSS.escape(focusedKey)}"]`);
@@ -357,7 +364,7 @@ export function mountLook(container, { proxy, store, loadFont }) {
             try {
               info = await proxy.assets.import('font');
             } catch (err) {
-              return say(`Couldn't import the font: ${err && err.message ? err.message : err}`, 'error');
+              return say(`Couldn't import the font: ${errorText(err)}`, 'error');
             }
             if (!info) return;
             const fam = familyFromFileName(info.name);
@@ -388,7 +395,7 @@ export function mountLook(container, { proxy, store, loadFont }) {
             try {
               info = await proxy.assets.import('image');
             } catch (err) {
-              return say(`Couldn't add the image: ${err && err.message ? err.message : err}`, 'error');
+              return say(`Couldn't add the image: ${errorText(err)}`, 'error');
             }
             if (!info) return;
             const old = store.get().background.assetId;
